@@ -4,17 +4,35 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-description = "Session multiplexer: tabs, panes, PTY management, domains"
+description = "Session multiplexer: tabs, panes, PTY management, domains (forked from WezTerm mux)"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
-thiserror.workspace = true
-parking_lot.workspace = true
-flume.workspace = true
-portable-pty.workspace = true
+# WezTerm terminal core
 mythterm-core.workspace = true
 mythterm-config.workspace = true
 
+# PTY
+portable-pty.workspace = true
+termwiz.workspace = true
+wezterm-term.workspace = true
+wezterm-input-types.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Concurrency
+parking_lot.workspace = true
+flume.workspace = true
+
+# Utilities
+anyhow.workspace = true
+log.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+url.workspace = true
+
+# Platform
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
+
+[dev-dependencies]
