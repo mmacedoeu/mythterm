@@ -56,10 +56,10 @@ custom OpenGL/wgpu rendering pipeline with the
 ### 2.1 WezTerm Crate Reuse Analysis
 
 After auditing the WezTerm source at `../tools/wezterm`, most non-GUI crates
-can be used as-is via path dependencies. Only rendering, windowing, config,
+can be used as-is via git dependencies. Only rendering, windowing, config,
 and font crates need replacement.
 
-#### Reuse as-is (path dependency from wezterm workspace)
+#### Reuse as-is (git dependency from wezterm repo)
 
 These crates are pure Rust with no platform/GUI coupling:
 
@@ -295,14 +295,16 @@ mythterm/
     │       ├── rasterize.rs      # Glyph rasterization
     │       └── metrics.rs        # Font metrics, cell size calculation
     │
-    ├── mythterm-mux/             # Multiplexer
+    ├── mythterm-mux/             # Forked from WezTerm mux (stripped Lua/SSH)
     │   └── src/
-    │       ├── lib.rs
-    │       ├── session.rs        # Session (top-level container)
+    │       ├── lib.rs            # Mux/Session (top-level container)
+    │       ├── activity.rs       # Activity tracking
+    │       ├── domain.rs         # Domain abstraction (LocalDomain)
+    │       ├── localpane.rs      # PTY-backed pane
+    │       ├── pane.rs           # Pane trait
+    │       ├── renderable.rs     # Renderable pane interface
     │       ├── tab.rs            # Tab (pane container)
-    │       ├── pane.rs           # Pane (PTY wrapper)
-    │       ├── domain.rs         # Domain abstraction (local, SSH)
-    │       └── pty.rs            # PTY management (portable-pty)
+    │       └── window.rs         # Window (tab container)
     │
     ├── mythterm-render/          # Myth engine integration
     │   └── src/
@@ -368,7 +370,7 @@ cargo check 2>&1 | grep "error" | wc -l  # should be 0
 
 ## 6. Phase 1 — Terminal Core (Reuse as-is)
 
-**Goal:** Use WezTerm's terminal core as a direct path dependency.
+**Goal:** Use WezTerm's terminal core as a direct git dependency.
 
 The entire `term` crate (~10,700 lines) and its dependency chain
 (`wezterm-cell`, `wezterm-surface`, `termwiz`, `wezterm-escape-parser`,
@@ -396,6 +398,8 @@ are pure Rust with no GUI/platform coupling. They can be used as-is.
   vtparse         = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
   portable-pty    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["serde_support"] }
   strip-ansi-escapes = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-toast-notification = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-open-url = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
   ```
 - [ ] Verify `cargo check -p mythterm-core` passes (mythterm-core just re-exports)
 - [ ] Create `mythterm-core` as a thin re-export crate:
@@ -740,7 +744,8 @@ cargo build --release -p mythterm-render
 
 #### 5g. Toast Notifications
 
-- [ ] Implement toast notification system
+- [ ] Integrate `wezterm-toast-notification` (already reusable via git dep) for OS-native toasts
+- [ ] Add egui-based in-app toast overlay for non-OS notifications
 - [ ] Show toasts for: update available, bell, errors
 - [ ] Auto-dismiss with configurable timeout
 
@@ -868,51 +873,69 @@ cargo build --release -p mythterm-ui
 
 #### 8a. Image Protocols
 
-- [ ] Sixel graphics support (port from `term/terminalstate/sixel.rs`)
-- [ ] iTerm2 inline images (port from `term/terminalstate/image.rs`)
-- [ ] Kitty image protocol (new, not in WezTerm)
-- [ ] Image scaling / sizing
-- [ ] Image scrolling behavior
+Most image protocol support is already included via `wezterm-term`:
+- **Sixel graphics** — included in `wezterm-term::terminalstate::sixel`
+- **iTerm2 inline images** — included in `wezterm-term::terminalstate::iterm`
+- **Kitty image protocol** — included in `wezterm-term::terminalstate::kitty` (~979 lines)
+
+Remaining work:
+- [ ] Verify image rendering works through mythterm-render pipeline
+- [ ] Implement image scaling / sizing in render layer
+- [ ] Implement image scrolling behavior in render layer
 
 #### 8b. Unicode & Emoji
 
-- [ ] Emoji presentation selectors (text vs emoji)
-- [ ] Emoji width (single vs double)
-- [ ] Variation selectors (U+FE0E, U+FE0F)
-- [ ] Zero-width joiner (family emoji, flag emoji)
-- [ ] Combining characters (accent marks, Hangul Jamo)
-- [ ] Bidirectional text (Arabic, Hebrew)
-- [ ] Unicode normalization forms
+Most Unicode support is already included via WezTerm crates:
+- **Bidirectional text** — included in `wezterm-bidi`
+- **Unicode character properties** — included in `wezterm-char-props`
+- **Emoji width / variation selectors** — handled by `wezterm-term`
+
+Remaining work:
+- [ ] Verify emoji rendering through the new font/rasterization pipeline
+- [ ] Verify ZWJ sequences (family emoji, flags) render correctly with ab_glyph
+- [ ] Verify combining characters work with rustybuzz shaping
 
 #### 8c. Advanced Terminal Features
 
-- [ ] DECALN (screen alignment test)
-- [ ] DECSCUSR (cursor style)
-- [ ] REP (repeat character)
-- [ ] DECSLRM (left/right margins)
-- [ ] Window manipulation (CSI t)
-- [ ] Title stack (push/pop window title)
-- [ ] Terminal synchronization (DCS begin/end)
+Already included in `wezterm-term::terminalstate`:
+- **DECALN** (screen alignment test)
+- **DECSCUSR** (cursor style)
+- **REP** (repeat character)
+- **DECSLRM** (left/right margins)
+- **Window manipulation** (CSI t)
+- **Title stack** (push/pop window title)
+- **Terminal synchronization** (DCS begin/end)
+
+No additional work needed — verify via vttest.
 
 #### 8d. Shell Integration
 
-- [ ] OSC 133 semantic prompts (prompt/command/output detection)
-- [ ] Working directory tracking (OSC 7)
-- [ ] Command duration tracking
-- [ ] Semantic zones in scrollback
+Already included in `wezterm-term::terminalstate`:
+- **OSC 133** semantic prompts
+- **OSC 7** working directory tracking
+
+Remaining work:
+- [ ] Wire shell integration events to mythterm-ui for prompt detection
+- [ ] Implement command duration tracking in mythterm-mux
+- [ ] Implement semantic zones in scrollback UI
 
 #### 8e. Copy/Paste
 
 - [ ] Clipboard integration (xclip/wl-copy/pbcopy)
-- [ ] OSC 52 clipboard protocol
+- [ ] OSC 52 clipboard protocol — already in `wezterm-term`, wire to platform clipboard
 - [ ] Smart paste (strip trailing newlines, etc.)
 - [ ] Copy on select (optional)
 
 #### 8f. Hyperlinks
 
-- [ ] Clickable URLs (OSC 8 and URL detection)
-- [ ] URL hover preview
-- [ ] Open URL in browser
+Already included in `wezterm-term::terminalstate`:
+- **OSC 8** hyperlinks
+- **URL detection** in `wezterm-surface`
+
+Remaining work:
+- [ ] Wire hyperlink events to mythterm-ui for click handling
+- [ ] Implement URL hover preview in egui
+- [ ] Implement open URL in browser (via `wezterm-open-url`)
 
 ### Verification
 
@@ -1008,7 +1031,7 @@ mythterm-bin ─────┬────────────────�
            │  ▼                  ▼
            │ mythterm-font    wezterm-term, termwiz,
            │                  wezterm-cell, wezterm-surface,
-           │                  portable-pty, etc. (path deps)
+           │                  portable-pty, etc. (git deps)
            │
            ▼
       myth-app, myth-render, myth-scene,
@@ -1023,7 +1046,7 @@ mythterm-bin ─────┬────────────────�
 
 Each crate has its own test suite:
 
-- `mythterm-core`: VT conformance tests (port WezTerm's test suite + vttest)
+- `mythterm-core`: Run WezTerm's existing test suite (re-export crate, tests come from wezterm-term)
 - `mythterm-font`: Shaping correctness, metrics calculation
 - `mythterm-mux`: Tab/pane management, PTY lifecycle
 - `mythterm-render`: Atlas packing, quad generation
