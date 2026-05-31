@@ -40,14 +40,14 @@ custom OpenGL/wgpu rendering pipeline with the
   command palette, right-click menus.
 - Maintain WezTerm's performance characteristics (60fps scrolling,
   sub-frame latency).
-- Cross-platform: Linux (primary), macOS, Windows, WASM (stretch goal).
+- Cross-platform: Linux (primary), macOS, Windows. WASM is a stretch goal that would require wasm-bindgen for Myth/egui and is out of scope for v0.1.
 
 ### Non-Goals (v0.1)
 
-- Lua scripting engine (defer to Phase 8).
-- SSH multiplexing / remote domains (defer to Phase 8).
-- tmux integration (defer to Phase 8).
-- Plugin system (defer to Phase 8).
+- Lua scripting engine (defer beyond v0.1).
+- SSH multiplexing / remote domains (defer beyond v0.1).
+- tmux integration (defer beyond v0.1).
+- Plugin system (defer beyond v0.1).
 
 ---
 
@@ -70,7 +70,7 @@ custom OpenGL/wgpu rendering pipeline with the
 | `wezterm-client` | Remote mux client | NO | (Phase 8) |
 | `codec` | Mux server protocol | NO | (Phase 8) |
 | `bidi` | Bidirectional text | **YES** | `mythterm-core` |
-| `strip-ansi-escapes` | ANSI escape stripping | **YES** | `mythterm-core` |
+| `strip-ansi-escapes` | ANSI escape stripping | **YES** (external) | `mythterm-core` |
 
 ### 2.2 WezTerm Rendering Pipeline (what we replace)
 
@@ -119,6 +119,12 @@ WezTerm:                          mythterm:
 ├─────────────┤                   ├─────────────┤
 │  mux         │                   │  mythterm-   │  Same role, ported
 │  (PTY/tabs)  │                   │  mux         │
+├─────────────┤                   ├─────────────┤
+│  wezterm-font│                   │  mythterm-   │  rustybuzz + ab_glyph
+│  (harfbuzz)  │                   │  font        │
+├─────────────┤                   ├─────────────┤
+│  config      │                   │  mythterm-   │  TOML + live reload
+│  (Lua/TOML)  │                   │  config      │
 └─────────────┘                   └─────────────┘
 ```
 
@@ -615,7 +621,9 @@ cargo test -p mythterm-mux
 
 **Goal:** Build the terminal rendering pipeline on top of Myth's engine.
 
-### 4a. Myth Engine Integration
+### Sub-Phases
+
+#### Phase 4.1 — Myth Engine Integration
 
 - [ ] Initialize Myth engine from `myth-app` event loop
 - [ ] Obtain `wgpu::Device` and `wgpu::Queue` from Myth's renderer
@@ -623,7 +631,7 @@ cargo test -p mythterm-mux
 - [ ] Handle window resize → resize terminal + render targets
 - [ ] Handle DPI changes → re-rasterize glyphs
 
-### 4b. Glyph Atlas
+#### Phase 4.2 — Glyph Atlas
 
 - [ ] Implement `GlyphAtlas` struct (GPU texture + CPU-side packer)
 - [ ] Use `guillotiere` for rectangle packing (same as WezTerm)
@@ -633,7 +641,7 @@ cargo test -p mythterm-mux
 - [ ] Upload atlas to `wgpu::Texture` via staging buffer
 - [ ] Implement atlas for images (sixel, iTerm2 images)
 
-### 4c. Terminal Render Pass
+#### Phase 4.3 — Terminal Render Pass
 
 - [ ] Define `TerminalPass` implementing Myth's pass interface
 - [ ] Create WGSL vertex shader:
@@ -663,7 +671,7 @@ cargo test -p mythterm-mux
 - [ ] Implement IME composition overlay pass
 - [ ] Implement sixel/image pass (textured quads)
 
-### 4d. Quad Generation
+#### Phase 4.4 — Quad Generation
 
 - [ ] Define `QuadVertex` (position, UV, fg, bg, flags)
 - [ ] Implement `generate_quads(visible_lines, cursor, selection)`
@@ -674,7 +682,7 @@ cargo test -p mythterm-mux
 - [ ] Handle combining characters (accent marks)
 - [ ] Handle box-drawing characters (render as lines, not glyphs)
 
-### 4e. Compositing
+#### Phase 4.5 — Compositing
 
 - [ ] Layer terminal content as base layer
 - [ ] Layer egui output on top
@@ -762,7 +770,7 @@ cargo build --release -p mythterm-render
 
 #### 5g. Toast Notifications
 
-- [ ] Port toast notification system
+- [ ] Implement toast notification system
 - [ ] Show toasts for: update available, bell, errors
 - [ ] Auto-dismiss with configurable timeout
 
@@ -936,7 +944,15 @@ cargo build --release -p mythterm-ui
 - [ ] URL hover preview
 - [ ] Open URL in browser
 
-### Deferred (Future)
+### Verification
+
+```bash
+cargo test -p mythterm-core --lib -- terminalstate::sixel
+
+# Visual: display a sixel image in the terminal
+# Visual: display an iTerm2 inline image
+# Visual: display a Kitty image
+```
 
 - Lua scripting engine
 - SSH domains
@@ -959,6 +975,14 @@ cargo build --release -p mythterm-ui
 - [ ] man page
 - [ ] Shell completions (bash, zsh, fish)
 
+### Verification
+
+```bash
+# Build and test packaging for current platform
+# Verify desktop entry works (Linux)
+# Verify shell completions load correctly
+```
+
 ---
 
 ## 15. Phase 10 — Performance & Polish
@@ -977,6 +1001,16 @@ cargo build --release -p mythterm-ui
 - [ ] Reduce memory: compact cell representation (WezTerm uses 16 bytes/cell)
 - [ ] Accessibility: screen reader support
 - [ ] Accessibility: high contrast mode
+
+### Verification
+
+```bash
+cargo bench
+
+# Verify frame time < 4ms for scrolling workload
+# Verify memory usage is within acceptable bounds
+# Verify startup time < 200ms
+```
 
 ---
 

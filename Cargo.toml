@@ -38,6 +38,7 @@ myth-macros    = { path = "../frontend/myth/crates/myth_macros" }
 wgpu = { version = "29.0.3", features = ["wgsl"] }
 glam = { version = "0.32.1", features = ["bytemuck", "scalar-math"] }
 bytemuck = { version = "1.25", features = ["derive"] }
+guillotiere = "0.6"
 
 # Windowing and Input
 winit = { version = "0.30.13" }
@@ -55,7 +56,6 @@ termwiz = "0.24"
 
 # Font
 ab_glyph = "0.2"
-fontdue = "0.9"
 fontconfig = "0.7"
 
 # Text shaping
@@ -79,6 +79,7 @@ parking_lot = "0.12"
 flume = "0.12"
 arc-swap = "1.7"
 pollster = "0.4"
+clap = { version = "4.5", features = ["derive"] }
 
 # Platform
 [target.'cfg(unix)'.dependencies]
@@ -90,3 +91,6 @@ lto = "thin"
 
 [profile.dev]
 opt-level = 1
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
