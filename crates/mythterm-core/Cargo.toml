@@ -4,17 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-description = "Terminal emulator core: VT parser, screen model, cell grid, scrollback"
+description = "Thin re-export of WezTerm's terminal emulator core"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
-thiserror.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+# WezTerm terminal core (re-exported)
+wezterm-term.workspace = true
+wezterm-cell.workspace = true
+wezterm-surface.workspace = true
+termwiz.workspace = true
+portable-pty.workspace = true
+wezterm-bidi.workspace = true
+wezterm-color-types.workspace = true
+wezterm-input-types.workspace = true
+wezterm-dynamic.workspace = true
+wezterm-escape-parser.workspace = true
+wezterm-char-props.workspace = true
+wezterm-blob-leases.workspace = true
 vtparse.workspace = true
-unicode-width.workspace = true
-unicode-segmentation.workspace = true
-parking_lot.workspace = true
 
 [dev-dependencies]

@@ -26,13 +26,13 @@ mythterm-render = { path = "crates/mythterm-render" }
 mythterm-ui     = { path = "crates/mythterm-ui" }
 
 # Myth engine (path dependency)
-myth-core      = { path = "../frontend/myth/crates/myth_core" }
-myth-render    = { path = "../frontend/myth/crates/myth_render" }
-myth-scene     = { path = "../frontend/myth/crates/myth_scene" }
-myth-app       = { path = "../frontend/myth/crates/myth_app" }
-myth-assets    = { path = "../frontend/myth/crates/myth_assets" }
-myth-resources = { path = "../frontend/myth/crates/myth_resources" }
-myth-macros    = { path = "../frontend/myth/crates/myth_macros" }
+myth_core      = { path = "../../frontend/myth/crates/myth_core" }
+myth_render    = { path = "../../frontend/myth/crates/myth_render" }
+myth_scene     = { path = "../../frontend/myth/crates/myth_scene" }
+myth_app       = { path = "../../frontend/myth/crates/myth_app" }
+myth_assets    = { path = "../../frontend/myth/crates/myth_assets" }
+myth_resources = { path = "../../frontend/myth/crates/myth_resources" }
+myth_macros    = { path = "../../frontend/myth/crates/myth_macros" }
 
 # Graphics and GPU
 wgpu = { version = "29.0.3", features = ["wgsl"] }
@@ -49,10 +49,24 @@ egui = "0.34.2"
 egui-wgpu = "0.34.2"
 egui-winit = { version = "0.34.2", default-features = false }
 
-# Terminal / PTY
-portable-pty = "0.8"
-vtparse = "0.2"
-termwiz = "0.24"
+# WezTerm terminal core (pinned to 577474d)
+wezterm-term    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["use_serde"] }
+wezterm-cell    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "use_serde", "use_image"] }
+wezterm-surface = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "appdata", "use_serde", "use_image"] }
+termwiz         = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["use_serde", "use_image"] }
+wezterm-escape-parser = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std"] }
+wezterm-dynamic = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std"] }
+wezterm-dynamic-derive = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-color-types = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "use_serde"] }
+wezterm-char-props = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-input-types = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-bidi    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-blob-leases = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+vtparse         = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+portable-pty    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["serde_support"] }
+strip-ansi-escapes = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-toast-notification = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+wezterm-open-url = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
 
 # Font
 ab_glyph = "0.2"
@@ -80,9 +94,6 @@ flume = "0.12"
 arc-swap = "1.7"
 pollster = "0.4"
 clap = { version = "4.5", features = ["derive"] }
-
-# Platform
-[target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "term"] }
 
 [profile.release]
@@ -91,6 +102,3 @@ lto = "thin"
 
 [profile.dev]
 opt-level = 1
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }

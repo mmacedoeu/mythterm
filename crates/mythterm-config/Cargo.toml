@@ -7,12 +7,26 @@ license.workspace = true
 description = "Configuration management: TOML parsing, live reload, color schemes"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
+# WezTerm types (for TerminalConfiguration trait)
+wezterm-term.workspace = true
+wezterm-cell.workspace = true
+wezterm-bidi.workspace = true
+
+# Serialization
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+
+# File system
 dirs-next.workspace = true
 notify.workspace = true
+
+# Concurrency
 parking_lot.workspace = true
 arc-swap.workspace = true
+
+# Error handling
+anyhow.workspace = true
+log.workspace = true
+
+[dev-dependencies]

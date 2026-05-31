@@ -15,7 +15,7 @@ anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true
 clap = { version = "4.0", features = ["derive"] }
-myth-app.workspace = true
+myth_app.workspace = true
 mythterm-core.workspace = true
 mythterm-config.workspace = true
 mythterm-font.workspace = true

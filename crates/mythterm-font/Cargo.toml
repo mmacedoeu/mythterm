@@ -12,7 +12,6 @@ log.workspace = true
 parking_lot.workspace = true
 rustybuzz.workspace = true
 ab_glyph.workspace = true
-fontdue.workspace = true
 unicode-width.workspace = true
 mythterm-core.workspace = true
 mythterm-config.workspace = true
