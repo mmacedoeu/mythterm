@@ -1,0 +1,21 @@
+[package]
+name = "mythterm-font"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+description = "Font discovery, text shaping (rustybuzz), glyph rasterization (ab_glyph)"
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+rustybuzz.workspace = true
+ab_glyph.workspace = true
+fontdue.workspace = true
+unicode-width.workspace = true
+mythterm-core.workspace = true
+mythterm-config.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+fontconfig.workspace = true

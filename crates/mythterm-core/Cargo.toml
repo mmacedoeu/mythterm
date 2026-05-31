@@ -1,0 +1,20 @@
+[package]
+name = "mythterm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+description = "Terminal emulator core: VT parser, screen model, cell grid, scrollback"
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+vtparse.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]

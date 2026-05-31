@@ -1,0 +1,22 @@
+[package]
+name = "mythterm-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+description = "Myth engine integration: glyph atlas, text pipeline, terminal rendering"
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+bytemuck.workspace = true
+wgpu.workspace = true
+glam.workspace = true
+myth-core.workspace = true
+myth-render.workspace = true
+myth-scene.workspace = true
+myth-app.workspace = true
+mythterm-core.workspace = true
+mythterm-font.workspace = true
+mythterm-config.workspace = true
