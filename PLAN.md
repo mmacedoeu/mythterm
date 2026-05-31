@@ -378,22 +378,24 @@ are pure Rust with no GUI/platform coupling. They can be used as-is.
 
 ### Tasks
 
-- [ ] Add path dependencies to workspace Cargo.toml:
+- [ ] Add git dependencies to workspace Cargo.toml (pinned to commit `577474d`):
   ```toml
-  wezterm-term    = { path = "../tools/wezterm/term", features = ["use_serde"] }
-  wezterm-cell    = { path = "../tools/wezterm/wezterm-cell", features = ["std", "use_serde", "use_image"] }
-  wezterm-surface = { path = "../tools/wezterm/wezterm-surface", features = ["std", "appdata", "use_serde", "use_image"] }
-  termwiz         = { path = "../tools/wezterm/termwiz", features = ["use_serde", "use_image"] }
-  wezterm-escape-parser = { path = "../tools/wezterm/wezterm-escape-parser", features = ["std"] }
-  wezterm-dynamic = { path = "../tools/wezterm/wezterm-dynamic", features = ["std"] }
-  wezterm-color-types = { path = "../tools/wezterm/color-types", features = ["std", "use_serde"] }
-  wezterm-char-props = { path = "../tools/wezterm/wezterm-char-props" }
-  wezterm-input-types = { path = "../tools/wezterm/wezterm-input-types" }
-  wezterm-bidi    = { path = "../tools/wezterm/bidi" }
-  wezterm-blob-leases = { path = "../tools/wezterm/wezterm-blob-leases" }
-  vtparse         = { path = "../tools/wezterm/vtparse" }
-  portable-pty    = { path = "../tools/wezterm/pty", features = ["serde_support"] }
-  strip-ansi-escapes = { path = "../tools/wezterm/strip-ansi-escapes" }
+  # WezTerm terminal core (pinned to 577474d89ee61aef4a48145cdec82a638d874751)
+  wezterm-term    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["use_serde"] }
+  wezterm-cell    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "use_serde", "use_image"] }
+  wezterm-surface = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "appdata", "use_serde", "use_image"] }
+  termwiz         = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["use_serde", "use_image"] }
+  wezterm-escape-parser = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std"] }
+  wezterm-dynamic = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std"] }
+  wezterm-dynamic-derive = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-color-types = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["std", "use_serde"] }
+  wezterm-char-props = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-input-types = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-bidi    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  wezterm-blob-leases = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  vtparse         = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
+  portable-pty    = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d", features = ["serde_support"] }
+  strip-ansi-escapes = { git = "https://github.com/wezterm/wezterm.git", rev = "577474d" }
   ```
 - [ ] Verify `cargo check -p mythterm-core` passes (mythterm-core just re-exports)
 - [ ] Create `mythterm-core` as a thin re-export crate:
