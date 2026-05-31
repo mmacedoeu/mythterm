@@ -32,8 +32,8 @@ custom OpenGL/wgpu rendering pipeline with the
 
 ### Goals
 
-- Port all core terminal features from WezTerm (VT parsing, scrollback,
-  images, hyperlinks, sixel, mouse tracking, selection).
+- Reuse WezTerm's core terminal features (VT parsing, scrollback,
+  images, hyperlinks, sixel, mouse tracking, selection) via git dependency.
 - Use Myth's SSA-based render graph for GPU rendering instead of
   WezTerm's hand-rolled wgpu/OpenGL quad pipeline.
 - Use egui for all UI chrome: tab bar, split borders, settings, overlays,
@@ -82,11 +82,11 @@ These crates are pure Rust with no platform/GUI coupling:
 | `wezterm-toast-notification` | OS toast notifications | ~300 | Platform-specific but self-contained |
 | `wezterm-open-url` | Open URL in browser | ~30 | Platform-specific |
 | `strip-ansi-escapes` | ANSI escape stripping | ~100 | Tiny utility |
-| `bintree` | Binary tree data structure | ~100 | Pure Rust |
-| `rangeset` | Range set operations | ~200 | Pure Rust |
-| `ratelim` | Rate limiter | ~100 | Pure Rust |
-| `frecency` | Frecency scoring | ~100 | Pure Rust |
-| `lfucache` | LFU cache | ~100 | Pure Rust |
+| `bintree` | Binary tree data structure | ~100 | Transitive dep |
+| `rangeset` | Range set operations | ~200 | Transitive dep |
+| `ratelim` | Rate limiter | ~100 | Transitive dep |
+| `frecency` | Frecency scoring | ~100 | Transitive dep |
+| `lfucache` | LFU cache | ~100 | Transitive dep |
 
 #### Fork and modify
 
@@ -425,7 +425,7 @@ are pure Rust with no GUI/platform coupling. They can be used as-is.
 - **Cell/Line/Surface** data structures with compact representation
 - **Input encoding** (keyboard modes, modifyOtherKeys, etc.)
 - **Bidirectional text** support
-- **Image blob management** (sixeli, kitty, iterm2)
+- **Image blob management** (sixel, kitty, iterm2)
 - **PTY management** via `portable-pty`
 - **Escape sequence parsing** via `termwiz` + `wezterm-escape-parser`
 
@@ -854,7 +854,7 @@ cargo build --release -p mythterm-ui
 - [ ] Implement `notify`-based file watcher for live reload
 - [ ] Implement `arc-swap` for lock-free config reads
 - [ ] Implement built-in color schemes (One Half Dark, Solarized, Gruvbox, etc.)
-- [ ] Implement WezTerm color scheme compatibility (import `.lua` schemes)
+- [ ] Import WezTerm color scheme data (convert Lua tables to TOML-compatible format)
 
 ### Verification
 
@@ -867,7 +867,7 @@ cargo build --release -p mythterm-ui
 
 ## 13. Phase 8 — Advanced Features
 
-**Goal:** Port remaining WezTerm features.
+**Goal:** Integrate remaining WezTerm features with mythterm render/UI layer.
 
 ### Sub-Tasks
 
@@ -940,8 +940,8 @@ Remaining work:
 ### Verification
 
 ```bash
-cargo test -p mythterm-core --lib -- terminalstate::sixel
-cargo test -p mythterm-core --lib -- terminalstate::image
+cargo test -p wezterm-term -- terminalstate::sixel
+cargo test -p wezterm-term -- terminalstate::image
 
 # Visual: display a sixel image in the terminal
 # Visual: display an iTerm2 inline image
