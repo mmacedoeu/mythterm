@@ -66,9 +66,9 @@ custom OpenGL/wgpu rendering pipeline with the
 | `wezterm-font` | Font discovery, shaping, rasterization | **YES** | `mythterm-font` |
 | `config` | Lua/TOML config, color schemes | **YES** | `mythterm-config` |
 | `window` | Cross-platform windowing, OpenGL context | **REPLACE** | myth-app (via Myth) |
-| `wezterm-ssh` | SSH client | NO | (Phase 8) |
-| `wezterm-client` | Remote mux client | NO | (Phase 8) |
-| `codec` | Mux server protocol | NO | (Phase 8) |
+| `wezterm-ssh` | SSH client | NO | (deferred) |
+| `wezterm-client` | Remote mux client | NO | (deferred) |
+| `codec` | Mux server protocol | NO | (deferred) |
 | `bidi` | Bidirectional text | **YES** | `mythterm-core` |
 | `strip-ansi-escapes` | ANSI escape stripping | **YES** (external) | `mythterm-core` |
 
@@ -948,10 +948,16 @@ cargo build --release -p mythterm-ui
 
 ```bash
 cargo test -p mythterm-core --lib -- terminalstate::sixel
+cargo test -p mythterm-core --lib -- terminalstate::image
 
 # Visual: display a sixel image in the terminal
 # Visual: display an iTerm2 inline image
 # Visual: display a Kitty image
+# Visual: verify emoji rendering (family emoji, flags, skin tones)
+# Visual: verify bidi text (Arabic, Hebrew) renders correctly
+# Visual: verify hyperlinks are clickable
+# Visual: verify clipboard integration (OSC 52)
+# Visual: verify shell integration (OSC 133 prompt detection)
 ```
 
 ### Deferred (Future)
@@ -1019,22 +1025,22 @@ cargo bench
 ## 16. Dependency Graph
 
 ```
-                    mythterm-bin
-                   /    |    \    \
-                  /     |     \    \
-         mythterm-ui  mythterm-render  mythterm-mux
-              |          |    \          |
-              |          |     \         |
-              |     mythterm-font  mythterm-core
-              |          |               |
-              +-----+----+-----+---------+
-                    |          |
-               mythterm-config |
-                    |          |
-                    +----+-----+
-                         |
-                   myth-core, myth-render, myth-scene,
-                   myth-app, myth-assets, myth-resources
+              mythterm-bin
+             / |    \    \
+            /  |     \    \
+   mythterm-ui|mythterm-render mythterm-mux
+        |     |   \        |
+        |     |    \       |
+        | mythterm-font mythterm-core
+        |     |           |
+        +--+--+-----+-----+
+           |        |
+  mythterm-config   |
+           |        |
+           +---+----+
+               |
+         myth-core, myth-render, myth-scene,
+         myth-app, myth-assets, myth-resources
 ```
 
 ---
