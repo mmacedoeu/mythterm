@@ -7,9 +7,9 @@
 3. [Architecture](#3-architecture)
 4. [Crate Map](#4-crate-map)
 5. [Phase 0 — Scaffolding & Build](#5-phase-0--scaffolding--build)
-6. [Phase 1 — Terminal Core](#6-phase-1--terminal-core)
+6. [Phase 1 — Terminal Core (Reuse)](#6-phase-1--terminal-core-reuse-as-is)
 7. [Phase 2 — Font Pipeline](#7-phase-2--font-pipeline)
-8. [Phase 3 — Multiplexer](#8-phase-3--multiplexer)
+8. [Phase 3 — Multiplexer (Fork)](#8-phase-3--multiplexer-fork-from-wezterm)
 9. [Phase 4 — Rendering Engine Integration](#9-phase-4--rendering-engine-integration)
 10. [Phase 5 — UI Layer (egui)](#10-phase-5--ui-layer-egui)
 11. [Phase 6 — Input Handling](#11-phase-6--input-handling)
@@ -53,24 +53,58 @@ custom OpenGL/wgpu rendering pipeline with the
 
 ## 2. Source Analysis
 
-### 2.1 WezTerm Crate Inventory
+### 2.1 WezTerm Crate Reuse Analysis
 
-| Crate | Purpose | Port? | Target |
-|-------|---------|-------|--------|
-| `term` | VT parser, screen model, terminal state machine | **YES** | `mythterm-core` |
-| `wezterm-cell` | Cell/Line data structures | **YES** | `mythterm-core` |
-| `wezterm-surface` | Surface abstraction (line sequences) | **YES** | `mythterm-core` |
-| `termwiz` | Escape parser, input encoding, surface model | **PARTIAL** | `mythterm-core` |
-| `mux` | Multiplexer (tabs, panes, domains, PTY) | **YES** | `mythterm-mux` |
-| `wezterm-gui` | GPU rendering, glyph cache, quad pipeline | **REPLACE** | `mythterm-render` |
-| `wezterm-font` | Font discovery, shaping, rasterization | **YES** | `mythterm-font` |
-| `config` | Lua/TOML config, color schemes | **YES** | `mythterm-config` |
-| `window` | Cross-platform windowing, OpenGL context | **REPLACE** | myth-app (via Myth) |
-| `wezterm-ssh` | SSH client | NO | (deferred) |
-| `wezterm-client` | Remote mux client | NO | (deferred) |
-| `codec` | Mux server protocol | NO | (deferred) |
-| `bidi` | Bidirectional text | **YES** | `mythterm-core` |
-| `strip-ansi-escapes` | ANSI escape stripping | **YES** (external) | `mythterm-core` |
+After auditing the WezTerm source at `../tools/wezterm`, most non-GUI crates
+can be used as-is via path dependencies. Only rendering, windowing, config,
+and font crates need replacement.
+
+#### Reuse as-is (path dependency from wezterm workspace)
+
+These crates are pure Rust with no platform/GUI coupling:
+
+| Crate | Purpose | Lines | Notes |
+|-------|---------|-------|-------|
+| `wezterm-term` | VT parser, screen model, terminal state machine | ~10,700 | **Core terminal engine** |
+| `wezterm-cell` | Cell/CellAttributes data structures | ~800 | Feature-gated, optional serde |
+| `wezterm-surface` | Line/Surface types, scrollback | ~1,200 | Core abstraction |
+| `termwiz` | Escape parser, input encoding, surface model | ~6,000 | Full terminal wizardry |
+| `wezterm-escape-parser` | Escape sequence parser | ~2,500 | Pure Rust, feature-gated |
+| `wezterm-dynamic` | Dynamic JSON-like type system | ~1,000 | Used by config/term |
+| `wezterm-dynamic-derive` | Derive macros for above | ~200 | Proc macro |
+| `wezterm-color-types` | Color types (Srgba, Hsla, etc.) | ~400 | Pure Rust |
+| `wezterm-char-props` | Unicode character properties | ~500 | Width tables, categories |
+| `wezterm-input-types` | Input type definitions (KeyCode, Modifiers) | ~300 | Pure Rust |
+| `wezterm-bidi` | Bidirectional text support | ~400 | Unicode bidi algorithm |
+| `wezterm-blob-leases` | Image blob caching/leasing | ~300 | Pure Rust |
+| `vtparse` | VT parser state machine | ~800 | Low-level parser |
+| `portable-pty` | Cross-platform PTY management | ~1,200 | Platform-specific but self-contained |
+| `wezterm-toast-notification` | OS toast notifications | ~300 | Platform-specific but self-contained |
+| `wezterm-open-url` | Open URL in browser | ~30 | Platform-specific |
+| `strip-ansi-escapes` | ANSI escape stripping | ~100 | Tiny utility |
+| `bintree` | Binary tree data structure | ~100 | Pure Rust |
+| `rangeset` | Range set operations | ~200 | Pure Rust |
+| `ratelim` | Rate limiter | ~100 | Pure Rust |
+| `frecency` | Frecency scoring | ~100 | Pure Rust |
+| `lfucache` | LFU cache | ~100 | Pure Rust |
+
+#### Fork and modify
+
+| Crate | Purpose | Why fork | Strategy |
+|-------|---------|----------|----------|
+| `mux` | Multiplexer (tabs, panes, domains) | Depends on `config` (Lua/mlua), `wezterm-ssh` | Fork into `mythterm-mux`, strip Lua/SSH deps, replace `config::` calls with trait-based interface |
+| `config` | Lua/TOML config, color schemes | Deeply coupled to Lua runtime (mlua) | Build new `mythterm-config` (TOML-only, no Lua) |
+
+#### Replace entirely
+
+| Crate | Purpose | Why replace | Target |
+|-------|---------|------------|--------|
+| `wezterm-gui` | GPU rendering, glyph cache, quad pipeline | Entire GUI layer | `mythterm-render` (Myth engine) |
+| `window` | Cross-platform windowing, OpenGL context | Platform windowing | `myth-app` (Myth engine) |
+| `wezterm-font` | Font discovery, shaping (harfbuzz), rasterization (freetype) | C library deps (freetype, harfbuzz, cairo) | `mythterm-font` (ab_glyph/rustybuzz) |
+| `codec` | Mux server protocol | Depends on mux+config | Deferred |
+| `wezterm-client` | Remote mux client | Depends on codec | Deferred |
+| `wezterm-ssh` | SSH client | Heavy deps | Deferred |
 
 ### 2.2 WezTerm Rendering Pipeline (what we replace)
 
@@ -239,25 +273,10 @@ mythterm/
 │                                 #   - event loop wiring
 │                                 #   - app lifecycle
 └── crates/
-    ├── mythterm-core/            # Terminal emulator core
+    ├── mythterm-core/            # Thin re-export of WezTerm terminal core
     │   └── src/
-    │       ├── lib.rs
-    │       ├── cell.rs           # Cell, CellAttributes, ColorAttribute
-    │       ├── line.rs           # Line storage (compact repr)
-    │       ├── screen.rs         # Screen buffer + scrollback ring
-    │       ├── terminal.rs       # Terminal state machine
-    │       ├── terminalstate/
-    │       │   ├── mod.rs
-    │       │   ├── csi.rs        # CSI sequence handler
-    │       │   ├── osc.rs        # OSC sequence handler
-    │       │   ├── dcs.rs        # DCS sequence handler
-    │       │   ├── mouse.rs      # Mouse tracking modes
-    │       │   ├── keyboard.rs   # Keyboard encoding (xterm, etc.)
-    │       │   ├── sixel.rs      # Sixel image protocol
-    │       │   ├── image.rs      # iTerm2 / Kitty image protocol
-    │       │   └── hyperlink.rs  # OSC 8 hyperlinks
-    │       ├── input.rs          # Input encoding (VT sequences)
-    │       └── config.rs         # TerminalConfiguration trait
+    │       └── lib.rs             # Re-exports: wezterm-term, wezterm-cell,
+    │                              #   wezterm-surface, termwiz, portable-pty
     │
     ├── mythterm-config/          # Configuration
     │   └── src/
@@ -347,132 +366,70 @@ cargo check 2>&1 | grep "error" | wc -l  # should be 0
 
 ---
 
-## 6. Phase 1 — Terminal Core
+## 6. Phase 1 — Terminal Core (Reuse as-is)
 
-**Goal:** Port the VT terminal emulator engine from WezTerm.
+**Goal:** Use WezTerm's terminal core as a direct path dependency.
 
-### Source Files to Port
+The entire `term` crate (~10,700 lines) and its dependency chain
+(`wezterm-cell`, `wezterm-surface`, `termwiz`, `wezterm-escape-parser`,
+`wezterm-dynamic`, `wezterm-color-types`, `wezterm-char-props`,
+`wezterm-input-types`, `wezterm-bidi`, `wezterm-blob-leases`, `vtparse`)
+are pure Rust with no GUI/platform coupling. They can be used as-is.
 
-From `wezterm/term/src/`:
+### Tasks
 
-| File | Lines | Complexity | Priority |
-|------|-------|-----------|----------|
-| `terminal.rs` | ~200 | Medium | P0 |
-| `screen.rs` | ~400 | High | P0 |
-| `terminalstate/mod.rs` | ~2000 | Very High | P0 |
-| `terminalstate/csi.rs` | ~3000 | Very High | P0 |
-| `terminalstate/osc.rs` | ~800 | High | P1 |
-| `terminalstate/dcs.rs` | ~400 | Medium | P1 |
-| `terminalstate/mouse.rs` | ~300 | Medium | P1 |
-| `terminalstate/sixel.rs` | ~500 | High | P2 |
-| `terminalstate/image.rs` | ~400 | High | P2 |
-| `terminalstate/hyperlink.rs` | ~100 | Low | P1 |
-| `input.rs` | ~500 | Medium | P1 |
+- [ ] Add path dependencies to workspace Cargo.toml:
+  ```toml
+  wezterm-term    = { path = "../tools/wezterm/term", features = ["use_serde"] }
+  wezterm-cell    = { path = "../tools/wezterm/wezterm-cell", features = ["std", "use_serde", "use_image"] }
+  wezterm-surface = { path = "../tools/wezterm/wezterm-surface", features = ["std", "appdata", "use_serde", "use_image"] }
+  termwiz         = { path = "../tools/wezterm/termwiz", features = ["use_serde", "use_image"] }
+  wezterm-escape-parser = { path = "../tools/wezterm/wezterm-escape-parser", features = ["std"] }
+  wezterm-dynamic = { path = "../tools/wezterm/wezterm-dynamic", features = ["std"] }
+  wezterm-color-types = { path = "../tools/wezterm/color-types", features = ["std", "use_serde"] }
+  wezterm-char-props = { path = "../tools/wezterm/wezterm-char-props" }
+  wezterm-input-types = { path = "../tools/wezterm/wezterm-input-types" }
+  wezterm-bidi    = { path = "../tools/wezterm/bidi" }
+  wezterm-blob-leases = { path = "../tools/wezterm/wezterm-blob-leases" }
+  vtparse         = { path = "../tools/wezterm/vtparse" }
+  portable-pty    = { path = "../tools/wezterm/pty", features = ["serde_support"] }
+  strip-ansi-escapes = { path = "../tools/wezterm/strip-ansi-escapes" }
+  ```
+- [ ] Verify `cargo check -p mythterm-core` passes (mythterm-core just re-exports)
+- [ ] Create `mythterm-core` as a thin re-export crate:
+  ```rust
+  // mythterm-core/src/lib.rs
+  pub use wezterm_term::*;
+  pub use wezterm_cell;
+  pub use wezterm_surface;
+  pub use termwiz;
+  pub use portable_pty;
+  ```
+- [ ] Implement `TerminalConfiguration` trait for mythterm-config integration
 
-From `wezterm/wezterm-cell/src/`:
+### What we get for free
 
-| File | Lines | Complexity | Priority |
-|------|-------|-----------|----------|
-| `lib.rs` (Cell, CellAttributes) | ~300 | Medium | P0 |
-
-From `wezterm/wezterm-surface/src/`:
-
-| File | Lines | Complexity | Priority |
-|------|-------|-----------|----------|
-| `line.rs` | ~500 | High | P0 |
-
-### Sub-Tasks
-
-#### 1a. Cell Model (`mythterm-core::cell`)
-
-- [ ] Port `Cell` struct (character + attributes)
-- [ ] Port `CellAttributes` (fg, bg, bold, italic, underline, etc.)
-- [ ] Port `ColorAttribute` (default, palette index, truecolor)
-- [ ] Port `Hyperlink` support (OSC 8)
-- [ ] Port image cell placeholders (sixel, iTerm2)
-- [ ] Port `Cell::clone()` with zero-alloc optimization for default cells
-- [ ] Add `serde` support for persistence
-
-#### 1b. Line Storage (`mythterm-core::line`)
-
-- [ ] Port `Line` with compact representation
-- [ ] Port `SEQ_ZERO` / sequence numbering for dirty tracking
-- [ ] Port line compression (sparse lines, runs of default cells)
-- [ ] Port `print()` and `erase()` operations
-- [ ] Port bidirectional (bidi) text support
-
-#### 1c. Screen Buffer (`mythterm-core::screen`)
-
-- [ ] Port `Screen` with scrollback ring buffer
-- [ ] Implement `PhysRowIndex` / `VisibleRowIndex` type system
-- [ ] Port scroll region handling (DECSTBM)
-- [ ] Port screen resize logic (reflow)
-- [ ] Port alternate screen buffer switching
-- [ ] Port scrollback limit enforcement
-
-#### 1d. Terminal State Machine (`mythterm-core::terminal`)
-
-- [ ] Port `Terminal` struct (owns Screen + state)
-- [ ] Port `advance_bytes()` entry point
-- [ ] Port VT parser integration (using `vtparse` crate)
-- [ ] Port cursor state (position, shape, visibility)
-- [ ] Port tab stops
-- [ ] Port character set handling (G0, G1, G2, G3)
-- [ ] Port saved cursor state (DECSC / DECRC)
-
-#### 1e. CSI Handler (`mythterm-core::terminalstate::csi`)
-
-- [ ] Port cursor movement (CUU, CUD, CUF, CUB, CUP, HVP)
-- [ ] Port erase operations (ED, EL, ECH, DECSED, DECSEL)
-- [ ] Port insert/delete (IL, DL, ICH, DCH)
-- [ ] Port scrolling (SU, SD, IND, RI)
-- [ ] Port SGR (Select Graphic Rendition) — colors, attributes
-- [ ] Port mode set/reset (DECSET, DECRST) — 25+ modes
-- [ ] Port device status reports (DSR, CPR)
-- [ ] Port bracketed paste mode
-- [ ] Port focus events mode
-
-#### 1f. OSC Handler (`mythterm-core::terminalstate::osc`)
-
-- [ ] Port OSC 0/1/2 (window title/icon name)
-- [ ] Port OSC 4 (color palette query/set)
-- [ ] Port OSC 7 (current working directory)
-- [ ] Port OSC 8 (hyperlinks)
-- [ ] Port OSC 10/11/12 (foreground/background/cursor color)
-- [ ] Port OSC 52 (clipboard)
-- [ ] Port OSC 104 (color reset)
-- [ ] Port OSC 112 (cursor color reset)
-- [ ] Port OSC 133 (semantic prompts — shell integration)
-- [ ] Port custom WezTerm OSC sequences
-
-#### 1g. Mouse Tracking (`mythterm-core::terminalstate::mouse`)
-
-- [ ] Port X10 basic mouse protocol
-- [ ] Port Normal tracking mode
-- [ ] Port Highlight tracking mode
-- [ ] Port Button-event tracking mode
-- [ ] Port Any-event tracking mode
-- [ ] Port SGR extended coordinates
-- [ ] Port URXVT extended coordinates
-- [ ] Port scroll wheel encoding
-
-#### 1h. Input Encoding (`mythterm-core::input`)
-
-- [ ] Port keyboard encoding modes (normal, application, etc.)
-- [ ] Port xterm modifyOtherKeys (level 1, 2)
-- [ ] Port CSI u encoding (Kitty keyboard protocol)
-- [ ] Port function key encoding (F1-F12, shifted, ctrl, etc.)
-- [ ] Port numpad key encoding
-- [ ] Port paste bracketing
+- **VT parser** with full CSI/OSC/DCS support (~2,766 lines in `terminalstate/mod.rs`)
+- **CSI performer** (~1,109 lines in `terminalstate/performer.rs`)
+- **Kitty image protocol** (~979 lines)
+- **Screen buffer** with scrollback ring (~1,155 lines)
+- **Mouse tracking** (X10, Normal, SGR, URXVT) (~364 lines)
+- **Sixel graphics** (~156 lines)
+- **iTerm2 inline images** (~153 lines)
+- **Cell/Line/Surface** data structures with compact representation
+- **Input encoding** (keyboard modes, modifyOtherKeys, etc.)
+- **Bidirectional text** support
+- **Image blob management** (sixeli, kitty, iterm2)
+- **PTY management** via `portable-pty`
+- **Escape sequence parsing** via `termwiz` + `wezterm-escape-parser`
 
 ### Verification
 
 ```bash
-# Port WezTerm's terminal test suite
-cargo test -p mythterm-core
+cargo check -p mythterm-core
 
-# Run vttest (standard VT conformance test)
-# In mythterm: vttest
+# Verify re-exports work
+cargo test -p mythterm-core
 ```
 
 ---
@@ -552,59 +509,69 @@ cargo test -p mythterm-font
 
 ---
 
-## 8. Phase 3 — Multiplexer
+## 8. Phase 3 — Multiplexer (Fork from WezTerm)
 
-**Goal:** Port session management, tabs, panes, and PTY handling.
+**Goal:** Fork WezTerm's `mux` crate, strip Lua/SSH dependencies.
 
-### Source Files to Port
+The `mux` crate has 42 references to `config::` and 5 to `mlua`/`luahelper`.
+Strategy: fork into `mythterm-mux`, remove deferred modules, replace config
+calls with a trait-based interface backed by `mythterm-config`.
 
-From `wezterm/mux/src/`:
+### Modules to strip
 
-| File | Lines | Action |
-|------|-------|--------|
-| `lib.rs` (Mux) | ~300 | Port as `Session` |
-| `tab.rs` | ~200 | Port |
-| `pane.rs` (trait) | ~200 | Port as trait |
-| `localpane.rs` | ~400 | Port (PTY-backed pane) |
-| `domain.rs` | ~200 | Port (local domain only) |
-| `window.rs` | ~100 | Port |
+| Module | Lines | Reason |
+|--------|-------|--------|
+| `ssh.rs` | ~400 | Deferred (heavy deps) |
+| `ssh_agent.rs` | ~100 | Deferred |
+| `client.rs` | ~200 | Deferred (remote mux) |
+| `connui.rs` | ~100 | Deferred (connection UI) |
+| `tmux.rs` | ~300 | Deferred (tmux integration) |
+| `tmux_commands.rs` | ~400 | Deferred |
+| `tmux_pty.rs` | ~100 | Deferred |
 
-**Deferred:** `ssh.rs`, `ssh_agent.rs`, `tmux*.rs`, `client.rs`, `connui.rs`
+### Config decoupling tasks
+
+- [ ] Copy `mux/src/` into `crates/mythterm-mux/src/`
+- [ ] Remove ssh.rs, ssh_agent.rs, client.rs, connui.rs, tmux*.rs
+- [ ] Define `MuxConfig` trait to replace `config::configuration()`:
+  ```rust
+  pub trait MuxConfig: Send + Sync {
+      fn exit_behavior(&self) -> ExitBehavior;
+      fn default_shell(&self) -> &str;
+      fn enable_tab_bar_at_bottom(&self) -> bool;
+      fn mux_enable_ssh_agent(&self) -> bool;
+      // ... other config values mux needs
+  }
+  ```
+- [ ] Replace `config::configuration()` calls with trait method calls
+- [ ] Replace `config::keyassignment::*` types with local type definitions
+- [ ] Remove `mlua` and `luahelper` dependencies
+- [ ] Replace Lua callback hooks in `domain.rs` and `localpane.rs` with event/trait pattern
+- [ ] Implement `MuxConfig` in `mythterm-config`
 
 ### Sub-Tasks
 
 #### 3a. PTY Management
 
-- [ ] Port `LocalPane` wrapping `portable-pty`
-- [ ] Implement PTY spawn (fork/exec with pty)
-- [ ] Implement PTY read loop → feed to terminal core
-- [ ] Implement PTY write (keyboard input → pty)
-- [ ] Handle PTY resize (SIGWINCH / `TIOCSWINSZ`)
-- [ ] Handle PTY exit / process termination
-- [ ] Implement working directory detection
+- [ ] Port `LocalPane` wrapping `portable-pty` (mostly copy from mux)
+- [ ] Verify PTY spawn, read loop, write, resize, exit handling works
 
 #### 3b. Tab Management
 
-- [ ] Port `Tab` (owns one or more panes in a layout tree)
+- [ ] Port `Tab` (pane container with layout tree)
 - [ ] Implement pane splitting (horizontal, vertical)
-- [ ] Implement pane closing
-- [ ] Implement pane focus navigation (vim-style, cycling)
-- [ ] Implement pane resize (drag splitter)
-- [ ] Implement pane zoom (temporarily fullscreen a pane)
+- [ ] Implement pane focus navigation
 
 #### 3c. Session Management
 
-- [ ] Port `Session` / `Mux` (owns all tabs)
+- [ ] Port `Mux` as `Session` (top-level container)
 - [ ] Implement tab creation / closing
-- [ ] Implement tab reordering
-- [ ] Implement window ↔ session association
-- [ ] Implement activity tracking (bell, output in inactive tab)
-- [ ] Implement pane ID allocation
+- [ ] Implement activity tracking
 
 #### 3d. Domain Abstraction
 
-- [ ] Define `Domain` trait
-- [ ] Implement `LocalDomain` (spawns local PTY)
+- [ ] Port `Domain` trait
+- [ ] Port `LocalDomain` (spawns local PTY)
 - [ ] Stub `SshDomain` for future implementation
 
 ### Verification
@@ -1033,11 +1000,13 @@ mythterm-bin ─────┬────────────────�
            │  │                  │
            │  │                  │
            │  ▼                  ▼
-           │ mythterm-render  mythterm-core
-           │  │
-           │  │
-           │  ▼
-           │ mythterm-font
+           │ mythterm-render  mythterm-core (re-export)
+           │  │                  │
+           │  │                  │
+           │  ▼                  ▼
+           │ mythterm-font    wezterm-term, termwiz,
+           │                  wezterm-cell, wezterm-surface,
+           │                  portable-pty, etc. (path deps)
            │
            ▼
       myth-app, myth-render, myth-scene,
@@ -1085,10 +1054,11 @@ Each crate has its own test suite:
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Myth engine API changes (beta) | High | High | Pin to specific commit, maintain local patches if needed |
+| Config decoupling from mux | Medium | High | 42 `config::` refs, 5 Lua refs; trait-based interface to isolate |
 | rustybuzz shaping gaps vs HarfBuzz | Medium | High | Fallback to HarfBuzz via `harfbuzz-sys` if needed |
 | ab_glyph quality vs FreeType | Medium | Medium | Evaluate fontdue as alternative rasterizer |
 | egui performance with large terminal | Medium | Medium | Limit egui to UI chrome only, render terminal directly |
 | Myth render graph integration complexity | High | High | Start with raw wgpu pipeline, integrate into graph later |
 | Cross-platform font discovery | Medium | Medium | Use fontconfig (Linux), CoreText (macOS), DirectWrite (Windows) |
 | Sixel/image rendering in new pipeline | Low | Medium | Images are texture quads, should integrate naturally |
-| WezTerm code updates diverge | Low | Low | Core terminal logic is stable, port once |
+| WezTerm upstream breaking changes | Low | Low | Terminal core is stable; pin to specific commit |
