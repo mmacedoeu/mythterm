@@ -151,8 +151,8 @@ WezTerm:                          mythterm:
 │  term        │                   │  mythterm-   │  Custom render pipeline
 │  (VT core)   │                   │  render      │  on myth's render graph
 ├─────────────┤                   ├─────────────┤
-│  mux         │                   │  mythterm-   │  Same role, ported
-│  (PTY/tabs)  │                   │  mux         │
+│  mux         │                   │  mythterm-   │  Forked, stripped
+│  (PTY/tabs)  │                   │  mux         │  Lua/SSH deps
 ├─────────────┤                   ├─────────────┤
 │  wezterm-font│                   │  mythterm-   │  rustybuzz + ab_glyph
 │  (harfbuzz)  │                   │  font        │
@@ -434,8 +434,8 @@ are pure Rust with no GUI/platform coupling. They can be used as-is.
 ```bash
 cargo check -p mythterm-core
 
-# Verify re-exports work
-cargo test -p mythterm-core
+# Run WezTerm's existing test suite
+cargo test -p wezterm-term
 ```
 
 ---
