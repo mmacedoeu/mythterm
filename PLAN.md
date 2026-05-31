@@ -163,7 +163,7 @@ Myth Render Graph
 Font Discovery (fontconfig/OS)
         │
         ▼
-Font Loading (ab_glyph / fontdue)
+Font Loading (ab_glyph)
         │
         ▼
 Text Shaping (rustybuzz)
@@ -329,7 +329,7 @@ mythterm/
 - [x] Create GitHub repo `mmacedoeu/mythterm`
 - [x] Initialize Cargo workspace with 7 crates
 - [x] Create stub `lib.rs` / `main.rs` for each crate
-- [ ] Set myth as path dependency (`../frontend/myth`)
+- [x] Set myth as path dependency (`../frontend/myth`)
 - [ ] Verify `cargo check` passes for the full workspace
 - [ ] Add CI workflow (`.github/workflows/ci.yml`):
   - `cargo fmt --check`
@@ -621,9 +621,9 @@ cargo test -p mythterm-mux
 
 **Goal:** Build the terminal rendering pipeline on top of Myth's engine.
 
-### Sub-Phases
+### Sub-Tasks
 
-#### Phase 4.1 — Myth Engine Integration
+#### 4a. Myth Engine Integration
 
 - [ ] Initialize Myth engine from `myth-app` event loop
 - [ ] Obtain `wgpu::Device` and `wgpu::Queue` from Myth's renderer
@@ -631,7 +631,7 @@ cargo test -p mythterm-mux
 - [ ] Handle window resize → resize terminal + render targets
 - [ ] Handle DPI changes → re-rasterize glyphs
 
-#### Phase 4.2 — Glyph Atlas
+#### 4b. Glyph Atlas
 
 - [ ] Implement `GlyphAtlas` struct (GPU texture + CPU-side packer)
 - [ ] Use `guillotiere` for rectangle packing (same as WezTerm)
@@ -641,7 +641,7 @@ cargo test -p mythterm-mux
 - [ ] Upload atlas to `wgpu::Texture` via staging buffer
 - [ ] Implement atlas for images (sixel, iTerm2 images)
 
-#### Phase 4.3 — Terminal Render Pass
+#### 4c. Terminal Render Pass
 
 - [ ] Define `TerminalPass` implementing Myth's pass interface
 - [ ] Create WGSL vertex shader:
@@ -671,7 +671,7 @@ cargo test -p mythterm-mux
 - [ ] Implement IME composition overlay pass
 - [ ] Implement sixel/image pass (textured quads)
 
-#### Phase 4.4 — Quad Generation
+#### 4d. Quad Generation
 
 - [ ] Define `QuadVertex` (position, UV, fg, bg, flags)
 - [ ] Implement `generate_quads(visible_lines, cursor, selection)`
@@ -682,7 +682,7 @@ cargo test -p mythterm-mux
 - [ ] Handle combining characters (accent marks)
 - [ ] Handle box-drawing characters (render as lines, not glyphs)
 
-#### Phase 4.5 — Compositing
+#### 4e. Compositing
 
 - [ ] Layer terminal content as base layer
 - [ ] Layer egui output on top
@@ -953,6 +953,8 @@ cargo test -p mythterm-core --lib -- terminalstate::sixel
 # Visual: display an iTerm2 inline image
 # Visual: display a Kitty image
 ```
+
+### Deferred (Future)
 
 - Lua scripting engine
 - SSH domains
