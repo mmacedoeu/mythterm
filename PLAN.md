@@ -1034,10 +1034,10 @@ mythterm-bin ─────┬────────────────�
            │  │                  │
            │  ▼                  ▼
            │ mythterm-render  mythterm-core
-           │  │                  ▲
-           │  │                  │
-           │  ▼                  │
-           │ mythterm-font ──────┘
+           │  │
+           │  │
+           │  ▼
+           │ mythterm-font
            │
            ▼
       myth-app, myth-render, myth-scene,
