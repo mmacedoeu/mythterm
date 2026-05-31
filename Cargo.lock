@@ -2150,7 +2150,8 @@ dependencies = [
 
 [[package]]
 name = "myth_animation"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "glam",
  "log",
@@ -2162,7 +2163,8 @@ dependencies = [
 
 [[package]]
 name = "myth_app"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -2186,7 +2188,8 @@ dependencies = [
 
 [[package]]
 name = "myth_assets"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "base64",
  "bytemuck",
@@ -2217,18 +2220,21 @@ dependencies = [
 
 [[package]]
 name = "myth_core"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "glam",
  "lasso",
  "log",
  "slotmap",
  "thiserror 2.0.18",
+ "web-time",
 ]
 
 [[package]]
 name = "myth_macros"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2237,7 +2243,8 @@ dependencies = [
 
 [[package]]
 name = "myth_render"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "bitflags 2.11.1",
  "bumpalo",
@@ -2267,7 +2274,8 @@ dependencies = [
 
 [[package]]
 name = "myth_resources"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "bitflags 2.11.1",
  "bytemuck",
@@ -2289,7 +2297,8 @@ dependencies = [
 
 [[package]]
 name = "myth_scene"
-version = "0.3.0"
+version = "0.2.0"
+source = "git+https://github.com/panxinmiao/myth.git?tag=0.2.0#5fb4b6aac84c5ce762c40c339dc1505b02dca426"
 dependencies = [
  "bytemuck",
  "glam",

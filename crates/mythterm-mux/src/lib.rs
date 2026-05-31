@@ -19,6 +19,8 @@ pub mod renderable;
 pub mod tab;
 pub mod window;
 
+// Re-export config trait for convenience
+pub use mythterm_config::mux_config::{ExitBehavior, MuxConfig};
 
 /// Unique identifier for a mux domain.
 pub type DomainId = usize;
