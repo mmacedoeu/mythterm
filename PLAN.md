@@ -644,6 +644,7 @@ cargo test -p mythterm-mux
 #### 4c. Terminal Render Pass
 
 - [ ] Define `TerminalPass` implementing Myth's pass interface
+- [ ] **Fallback**: If Myth render graph integration is too complex (see Risk Register), implement as raw wgpu render pass first, integrate into graph later
 - [ ] Create WGSL vertex shader:
   ```wgsl
   struct VertexInput {
@@ -1025,22 +1026,22 @@ cargo bench
 ## 16. Dependency Graph
 
 ```
-              mythterm-bin
-             / |    \    \
-            /  |     \    \
-   mythterm-ui|mythterm-render mythterm-mux
-        |     |   \        |
-        |     |    \       |
-        | mythterm-font mythterm-core
-        |     |           |
-        +--+--+-----+-----+
-           |        |
-  mythterm-config   |
-           |        |
-           +---+----+
-               |
-         myth-core, myth-render, myth-scene,
-         myth-app, myth-assets, myth-resources
+mythterm-bin ─────┬──────────────────────────────────┐
+                  │                                   │
+                  ▼                                   ▼
+          mythterm-ui ──────► mythterm-mux      mythterm-config
+           │  │                  │
+           │  │                  │
+           │  ▼                  ▼
+           │ mythterm-render  mythterm-core
+           │  │                  ▲
+           │  │                  │
+           │  ▼                  │
+           │ mythterm-font ──────┘
+           │
+           ▼
+      myth-app, myth-render, myth-scene,
+      myth-core, myth-assets, myth-resources
 ```
 
 ---
