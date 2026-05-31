@@ -11,6 +11,7 @@ use wezterm_term::color::ColorPalette;
 use wezterm_term::config::{BidiMode, NewlineCanon, TerminalConfiguration};
 use wezterm_cell::UnicodeVersion;
 
+use crate::mux_config::{ExitBehavior, MuxConfig};
 use crate::Settings;
 
 /// Mythterm's implementation of `TerminalConfiguration`.
@@ -130,5 +131,27 @@ impl TerminalConfiguration for MythtermConfig {
 
     fn log_unknown_escape_sequences(&self) -> bool {
         self.settings.load().debug_escape_sequences
+    }
+}
+
+impl MuxConfig for MythtermConfig {
+    fn exit_behavior(&self) -> ExitBehavior {
+        ExitBehavior::CloseOnCleanExit
+    }
+
+    fn default_shell(&self) -> &str {
+        "/bin/bash"
+    }
+
+    fn mux_enable_ssh_agent(&self) -> bool {
+        false
+    }
+
+    fn switch_to_last_active_tab_when_closing(&self) -> bool {
+        true
+    }
+
+    fn default_cwd(&self) -> Option<&std::path::Path> {
+        None
     }
 }
