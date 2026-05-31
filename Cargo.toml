@@ -25,14 +25,14 @@ mythterm-mux    = { path = "crates/mythterm-mux" }
 mythterm-render = { path = "crates/mythterm-render" }
 mythterm-ui     = { path = "crates/mythterm-ui" }
 
-# Myth engine (path dependency)
-myth_core      = { path = "../../frontend/myth/crates/myth_core" }
-myth_render    = { path = "../../frontend/myth/crates/myth_render" }
-myth_scene     = { path = "../../frontend/myth/crates/myth_scene" }
-myth_app       = { path = "../../frontend/myth/crates/myth_app" }
-myth_assets    = { path = "../../frontend/myth/crates/myth_assets" }
-myth_resources = { path = "../../frontend/myth/crates/myth_resources" }
-myth_macros    = { path = "../../frontend/myth/crates/myth_macros" }
+# Myth engine (git dependency, pinned to 0.2.0 stable release)
+myth_core      = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_render    = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_scene     = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_app       = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_assets    = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_resources = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
+myth_macros    = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
 
 # Graphics and GPU
 wgpu = { version = "29.0.3", features = ["wgsl"] }
