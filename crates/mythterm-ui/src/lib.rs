@@ -13,11 +13,15 @@ pub mod overlay;
 pub mod splits;
 pub mod tabbar;
 pub mod terminal_widget;
+pub mod toast;
+pub mod url;
 
 pub use clipboard::{ClipboardHandler, ClipboardProvider, PlatformClipboard};
 pub use input::InputMapper;
 pub use tabbar::TabBar;
 pub use terminal_widget::TerminalWidget;
+pub use toast::{notify, notify_with_url};
+pub use url::open_url;
 
 /// The main application state for the UI.
 pub struct AppState {

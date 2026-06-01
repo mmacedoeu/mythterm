@@ -21,5 +21,7 @@ mythterm-render.workspace = true
 # Utilities
 anyhow.workspace = true
 log.workspace = true
+wezterm-open-url.workspace = true
+wezterm-toast-notification.workspace = true
 
 [dev-dependencies]
