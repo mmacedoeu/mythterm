@@ -27,8 +27,10 @@ pub use url::open_url;
 pub struct AppState {
     /// Currently active tab index.
     pub active_tab: usize,
-    /// Tab titles.
+    /// Tab titles (parallel with tab_pane_ids).
     pub tab_titles: Vec<String>,
+    /// Pane IDs for each tab (parallel with tab_titles).
+    pub tab_pane_ids: Vec<usize>,
     /// Whether the command palette is open.
     pub command_palette_open: bool,
     /// Whether the search overlay is open.
@@ -41,7 +43,8 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             active_tab: 0,
-            tab_titles: Vec::new(), // Tabs are added by spawn_pane
+            tab_titles: Vec::new(),
+            tab_pane_ids: Vec::new(), // Tabs are added by spawn_pane
             command_palette_open: false,
             search_open: false,
             search_query: String::new(),

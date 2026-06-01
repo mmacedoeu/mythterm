@@ -118,6 +118,7 @@ impl MythtermApp {
         self.mux.insert_tab(Arc::new(Tab::new(tab_id, self.mux.get_pane(pane_id).unwrap())));
         self.active_pane = Some(pane_id);
         self.app_state.tab_titles.push(format!("Tab {}", tab_id + 1));
+        self.app_state.tab_pane_ids.push(pane_id);
         self.app_state.active_tab = self.app_state.tab_titles.len() - 1;
         log::info!("Spawned pane {} in tab {}", pane_id, tab_id);
         Ok(pane_id)
@@ -125,11 +126,8 @@ impl MythtermApp {
 
     /// Sync active_pane with the active_tab index.
     fn sync_active_pane(&mut self) {
-        let tabs: Vec<_> = self.mux.iter_tabs();
-        if let Some(tab) = tabs.get(self.app_state.active_tab) {
-            if let Some(pane) = tab.get_active_pane() {
-                self.active_pane = Some(pane.pane_id());
-            }
+        if let Some(&pane_id) = self.app_state.tab_pane_ids.get(self.app_state.active_tab) {
+            self.active_pane = Some(pane_id);
         }
     }
 
@@ -145,27 +143,28 @@ impl MythtermApp {
             log::info!("Pane {} exited, removing", pane_id);
             self.mux.remove_pane(pane_id);
 
-            // Find and remove the tab containing this pane
-            let tabs: Vec<_> = self.mux.iter_tabs();
-            for (tab_idx, tab) in tabs.iter().enumerate() {
-                if tab.panes().iter().any(|p| p.pane_id() == pane_id) {
-                    let tab_id = tab.tab_id();
-                    self.mux.remove_tab(tab_id);
-                    // Remove the corresponding tab title
-                    if tab_idx < self.app_state.tab_titles.len() {
-                        self.app_state.tab_titles.remove(tab_idx);
-                    }
-                    removed = true;
-                    break;
+            // Remove from tab tracking
+            if let Some(pos) = self.app_state.tab_pane_ids.iter().position(|&id| id == pane_id) {
+                self.app_state.tab_pane_ids.remove(pos);
+                if pos < self.app_state.tab_titles.len() {
+                    self.app_state.tab_titles.remove(pos);
                 }
+                // Also remove the tab from mux
+                let tabs: Vec<_> = self.mux.iter_tabs();
+                for tab in &tabs {
+                    if tab.panes().iter().any(|p| p.pane_id() == pane_id) {
+                        self.mux.remove_tab(tab.tab_id());
+                        break;
+                    }
+                }
+                removed = true;
             }
         }
 
         // If current pane was removed, switch to first available
         if removed {
             if self.active_pane.map_or(false, |id| self.mux.get_pane(id).is_none()) {
-                let panes = self.mux.iter_panes();
-                self.active_pane = panes.first().map(|p| p.pane_id());
+                self.active_pane = self.app_state.tab_pane_ids.first().copied();
                 self.app_state.active_tab = 0;
             }
         }
