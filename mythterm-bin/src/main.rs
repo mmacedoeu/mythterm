@@ -324,6 +324,10 @@ impl MythtermApp {
                     let cursor = pane.get_cursor_position();
                     let size = pane.get_size();
 
+                    // Debug output to stderr (always visible)
+                    eprintln!("[DEBUG] Pane {}: {} lines, cursor ({},{}), size {}x{}",
+                        pane_id, lines.len(), cursor.0, cursor.1, size.cols, size.rows);
+
                     log::debug!("Pane {}: {} lines, cursor ({},{}), size {}x{}",
                         pane_id, lines.len(), cursor.0, cursor.1, size.cols, size.rows);
 

@@ -37,7 +37,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             active_tab: 0,
-            tab_titles: vec!["Tab 1".to_string()],
+            tab_titles: Vec::new(), // Tabs are added by spawn_pane
             command_palette_open: false,
             search_open: false,
             search_query: String::new(),
