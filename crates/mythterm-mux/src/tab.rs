@@ -28,6 +28,8 @@ pub struct Tab {
     panes: Vec<Arc<dyn Pane>>,
     /// Index of the active (focused) pane.
     active_pane: usize,
+    /// Index of the zoomed pane, if any.
+    zoomed_pane: Option<usize>,
 }
 
 impl Tab {
@@ -36,6 +38,7 @@ impl Tab {
             tab_id,
             panes: vec![pane],
             active_pane: 0,
+            zoomed_pane: None,
         }
     }
 
@@ -55,7 +58,60 @@ impl Tab {
         self.panes.len()
     }
 
+    /// Check if a pane is zoomed (temporarily fullscreen).
     pub fn is_zoomed(&self) -> bool {
-        false // TODO: implement zoom
+        self.zoomed_pane.is_some()
+    }
+
+    /// Get the zoomed pane index, if any.
+    pub fn zoomed_pane(&self) -> Option<usize> {
+        self.zoomed_pane
+    }
+
+    /// Toggle zoom on the active pane.
+    ///
+    /// If the active pane is zoomed, unzoom it.
+    /// If no pane is zoomed, zoom the active pane.
+    pub fn toggle_zoom(&mut self) {
+        if self.zoomed_pane == Some(self.active_pane) {
+            self.zoomed_pane = None;
+        } else {
+            self.zoomed_pane = Some(self.active_pane);
+        }
+    }
+
+    /// Set the active pane by index.
+    pub fn set_active_pane(&mut self, index: usize) {
+        if index < self.panes.len() {
+            self.active_pane = index;
+        }
+    }
+
+    /// Add a pane to the tab.
+    pub fn add_pane(&mut self, pane: Arc<dyn Pane>) {
+        self.panes.push(pane);
+        self.active_pane = self.panes.len() - 1;
+    }
+
+    /// Remove a pane by index. Returns the removed pane.
+    pub fn remove_pane(&mut self, index: usize) -> Option<Arc<dyn Pane>> {
+        if index < self.panes.len() {
+            let pane = self.panes.remove(index);
+            // Adjust active pane index
+            if self.active_pane >= self.panes.len() && self.active_pane > 0 {
+                self.active_pane -= 1;
+            }
+            // Clear zoom if the zoomed pane was removed
+            if self.zoomed_pane == Some(index) {
+                self.zoomed_pane = None;
+            } else if let Some(z) = self.zoomed_pane {
+                if z > index {
+                    self.zoomed_pane = Some(z - 1);
+                }
+            }
+            Some(pane)
+        } else {
+            None
+        }
     }
 }

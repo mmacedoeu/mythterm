@@ -17,8 +17,12 @@ use mythterm_config::{
     load_settings, ensure_config_exists, MythtermConfig, Settings,
 };
 use mythterm_font::FontMetrics;
+use mythterm_mux::domain::{Domain, LocalDomain};
+use mythterm_mux::pane::{Pane, PaneId};
+use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
 use mythterm_render::TerminalRenderer;
+use mythterm_ui::clipboard::{ClipboardHandler, PlatformClipboard};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -49,6 +53,10 @@ struct MythtermApp {
     renderer: Option<TerminalRenderer>,
     /// Multiplexer.
     mux: Arc<Mux>,
+    /// Local domain for spawning panes.
+    local_domain: Option<LocalDomain>,
+    /// Active pane ID.
+    active_pane: Option<PaneId>,
     /// Input mapper.
     input_mapper: InputMapper,
     /// Application state (UI).
@@ -61,6 +69,8 @@ struct MythtermApp {
     search: SearchOverlay,
     /// Command palette.
     command_palette: CommandPalette,
+    /// Clipboard handler.
+    clipboard: ClipboardHandler,
     /// Arguments.
     args: Args,
 }
@@ -79,6 +89,7 @@ impl MythtermApp {
         let mux = Arc::new(Mux::new());
         let input_mapper = InputMapper::new();
         let metrics = FontMetrics::default();
+        let clipboard = ClipboardHandler::new(Arc::new(PlatformClipboard::new()));
 
         Ok(Self {
             window: None,
@@ -86,14 +97,56 @@ impl MythtermApp {
             egui_state: None,
             renderer: None,
             mux,
+            local_domain: None,
+            active_pane: None,
             input_mapper,
             app_state: AppState::default(),
             config,
             metrics,
             search: SearchOverlay::new(),
             command_palette: CommandPalette::new(),
+            clipboard,
             args,
         })
+    }
+
+    /// Spawn a new terminal pane.
+    fn spawn_pane(&mut self) -> Result<PaneId> {
+        let domain = self.local_domain.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Local domain not initialized"))?;
+
+        let pane_id = self.mux.alloc_pane_id();
+        let size = portable_pty::PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
+
+        let pane = domain.spawn(pane_id, size, None)?;
+
+        // Create a tab for this pane
+        let tab_id = self.mux.alloc_tab_id();
+        let tab = Tab::new(tab_id, pane.clone());
+
+        self.mux.insert_pane(pane);
+        self.mux.insert_tab(Arc::new(tab));
+
+        self.active_pane = Some(pane_id);
+        self.app_state.tab_titles.push(format!("Tab {}", tab_id + 1));
+        self.app_state.active_tab = self.app_state.tab_titles.len() - 1;
+
+        log::info!("Spawned pane {} in tab {}", pane_id, tab_id);
+        Ok(pane_id)
+    }
+
+    /// Send input to the active pane.
+    fn send_input(&self, data: Vec<u8>) {
+        if let Some(pane_id) = self.active_pane {
+            if let Some(pane) = self.mux.get_pane(pane_id) {
+                pane.write_to_pty(data);
+            }
+        }
     }
 }
 
@@ -152,7 +205,14 @@ impl ApplicationHandler for MythtermApp {
 
         // Load default font
         if let Err(e) = renderer.load_font("monospace", false, false) {
-            log::warn!("Failed to load default font: {}", e);
+            log::warn!("Failed to load monospace font: {}, trying fallback", e);
+            // Try common font names
+            for name in &["DejaVu Sans Mono", "Liberation Mono", "Consolas", "Menlo", "Courier New"] {
+                if renderer.load_font(name, false, false).is_ok() {
+                    log::info!("Loaded font: {}", name);
+                    break;
+                }
+            }
         }
 
         // Create egui context and state
@@ -167,12 +227,19 @@ impl ApplicationHandler for MythtermApp {
             None,
         );
 
+        // Initialize local domain
+        let local_domain = LocalDomain::new(0, self.config.clone(), self.config.clone());
+        self.local_domain = Some(local_domain);
+
         self.window = Some(window);
         self.egui_ctx = Some(egui_ctx);
         self.egui_state = Some(egui_state);
         self.renderer = Some(renderer);
 
-        log::info!("Window created, renderer initialized");
+        // Spawn initial terminal pane
+        if let Err(e) = self.spawn_pane() {
+            log::error!("Failed to spawn initial pane: {}", e);
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -196,7 +263,6 @@ impl ApplicationHandler for MythtermApp {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state.is_pressed() {
-                    // Get logical key from winit event
                     let key = &event.logical_key;
                     let modifiers = self.egui_state.as_ref()
                         .map(|s| s.egui_input().modifiers)
@@ -206,7 +272,6 @@ impl ApplicationHandler for MythtermApp {
 
                     // Check for app-level shortcuts first
                     if modifiers.ctrl && modifiers.shift {
-                        // Map winit key to egui key for shortcuts
                         let egui_key = winit_key_to_egui(key);
                         if let Some(ek) = egui_key {
                             match ek {
@@ -220,17 +285,28 @@ impl ApplicationHandler for MythtermApp {
                                     self.app_state.command_palette_open = true;
                                     return;
                                 }
+                                egui::Key::T => {
+                                    // New tab
+                                    if let Err(e) = self.spawn_pane() {
+                                        log::error!("Failed to spawn new tab: {}", e);
+                                    }
+                                    return;
+                                }
+                                egui::Key::W => {
+                                    // Close tab - send exit to active pane
+                                    self.send_input(b"exit\n".to_vec());
+                                    return;
+                                }
                                 _ => {}
                             }
                         }
                     }
 
-                    // Map key to VT sequence and send to terminal
+                    // Map key to VT sequence and send to active pane
                     let egui_key = winit_key_to_egui(key);
                     if let Some(ek) = egui_key {
                         if let Some(vt_seq) = self.input_mapper.map_key(ek, &modifiers, text) {
-                            // TODO: Send to active pane's PTY
-                            log::debug!("VT sequence: {:?}", String::from_utf8_lossy(&vt_seq));
+                            self.send_input(vt_seq);
                         }
                     }
                 }
@@ -280,14 +356,35 @@ fn winit_key_to_egui(key: &winit::keyboard::Key) -> Option<egui::Key> {
         Key::Named(winit::keyboard::NamedKey::F11) => Some(egui::Key::F11),
         Key::Named(winit::keyboard::NamedKey::F12) => Some(egui::Key::F12),
         Key::Character(c) => {
-            if c.len() == 1 {
-                let ch = c.chars().next().unwrap();
-                match ch {
-                    'a'..='z' => Some(egui::Key::A), // simplified
-                    _ => None,
-                }
-            } else {
-                None
+            let ch = c.chars().next()?;
+            match ch {
+                'a' => Some(egui::Key::A),
+                'b' => Some(egui::Key::B),
+                'c' => Some(egui::Key::C),
+                'd' => Some(egui::Key::D),
+                'e' => Some(egui::Key::E),
+                'f' => Some(egui::Key::F),
+                'g' => Some(egui::Key::G),
+                'h' => Some(egui::Key::H),
+                'i' => Some(egui::Key::I),
+                'j' => Some(egui::Key::J),
+                'k' => Some(egui::Key::K),
+                'l' => Some(egui::Key::L),
+                'm' => Some(egui::Key::M),
+                'n' => Some(egui::Key::N),
+                'o' => Some(egui::Key::O),
+                'p' => Some(egui::Key::P),
+                'q' => Some(egui::Key::Q),
+                'r' => Some(egui::Key::R),
+                's' => Some(egui::Key::S),
+                't' => Some(egui::Key::T),
+                'u' => Some(egui::Key::U),
+                'v' => Some(egui::Key::V),
+                'w' => Some(egui::Key::W),
+                'x' => Some(egui::Key::X),
+                'y' => Some(egui::Key::Y),
+                'z' => Some(egui::Key::Z),
+                _ => None,
             }
         }
         _ => None,
@@ -296,14 +393,24 @@ fn winit_key_to_egui(key: &winit::keyboard::Key) -> Option<egui::Key> {
 
 impl MythtermApp {
     fn render(&mut self) {
-        let (Some(egui_ctx), Some(egui_state), Some(window)) =
-            (&self.egui_ctx, &mut self.egui_state, &self.window)
+        // Clone window Arc to avoid borrowing self.window
+        let window = match &self.window {
+            Some(w) => w.clone(),
+            None => return,
+        };
+
+        let (Some(egui_ctx), Some(egui_state)) =
+            (&self.egui_ctx, &mut self.egui_state)
         else {
             return;
         };
 
         // Run egui frame
-        let raw_input = egui_state.take_egui_input(window);
+        let raw_input = egui_state.take_egui_input(&window);
+        let mut spawn_new_tab = false;
+        let mut close_tab = false;
+        let mut open_search = false;
+
         let full_output = egui_ctx.run_ui(raw_input, |ctx| {
             // Tab bar at top
             egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
@@ -312,22 +419,50 @@ impl MythtermApp {
                     if clicked < self.app_state.tab_titles.len() {
                         self.app_state.active_tab = clicked;
                     } else {
-                        // New tab
-                        self.app_state.tab_titles.push(format!("Tab {}", self.app_state.tab_titles.len() + 1));
-                        self.app_state.active_tab = self.app_state.tab_titles.len() - 1;
+                        spawn_new_tab = true;
                     }
                 }
             });
 
             // Terminal content area
             egui::CentralPanel::default().show(ctx, |ui| {
-                let widget = TerminalWidget::new(
-                    80,
-                    24,
-                    self.metrics.cell_width,
-                    self.metrics.cell_height,
-                );
-                ui.add(widget);
+                // Get terminal content from active pane
+                if let Some(pane_id) = self.active_pane {
+                    if let Some(pane) = self.mux.get_pane(pane_id) {
+                        // Get terminal size
+                        let size = pane.get_size();
+                        let _rows = size.rows as usize;
+                        let _cols = size.cols as usize;
+
+                        // Get actual terminal content
+                        let lines = pane.get_visible_lines();
+                        let cursor = pane.get_cursor_position();
+
+                        // Create terminal widget with actual content
+                        let mut widget = TerminalWidget::with_content(
+                            lines,
+                            self.metrics.cell_width,
+                            self.metrics.cell_height,
+                        );
+                        widget = widget.cursor(cursor.0, cursor.1);
+
+                        ui.add(widget);
+                    } else {
+                        let widget = TerminalWidget::new(
+                            80, 24,
+                            self.metrics.cell_width,
+                            self.metrics.cell_height,
+                        );
+                        ui.add(widget);
+                    }
+                } else {
+                    let widget = TerminalWidget::new(
+                        80, 24,
+                        self.metrics.cell_width,
+                        self.metrics.cell_height,
+                    );
+                    ui.add(widget);
+                };
             });
 
             // Search overlay
@@ -337,7 +472,7 @@ impl MythtermApp {
                         self.app_state.search_open = false;
                     }
                     SearchAction::QueryChanged => {
-                        // TODO: search in terminal output
+                        // Search is handled by the overlay UI
                     }
                     _ => {}
                 }
@@ -347,16 +482,50 @@ impl MythtermApp {
             if self.app_state.command_palette_open {
                 if let Some(cmd) = self.command_palette.show(ctx) {
                     self.app_state.command_palette_open = false;
-                    log::info!("Command selected: {}", cmd);
-                    // TODO: execute command
+                    // Execute the command
+                    match cmd.as_str() {
+                        "New Tab" => {
+                            spawn_new_tab = true;
+                        }
+                        "Close Tab" => {
+                            close_tab = true;
+                        }
+                        "Search" => {
+                            open_search = true;
+                        }
+                        _ => {
+                            log::info!("Unknown command: {}", cmd);
+                        }
+                    }
                 }
             }
         });
 
-        egui_state.handle_platform_output(window, full_output.platform_output);
+        // Execute deferred actions and handle egui output
+        // We need to be careful with borrows since egui_state is a field of self
 
-        // TODO: Render terminal content via TerminalRenderer
-        // This requires integrating with the wgpu surface
+        // First, handle egui output
+        if let (Some(egui_state), Some(window)) = (&mut self.egui_state, &self.window) {
+            egui_state.handle_platform_output(window, full_output.platform_output);
+        }
+
+        // Then execute deferred actions
+        if spawn_new_tab {
+            if let Err(e) = self.spawn_pane() {
+                log::error!("Failed to spawn new tab: {}", e);
+            }
+        }
+        if close_tab {
+            self.send_input(b"exit\n".to_vec());
+        }
+        if open_search {
+            self.search = SearchOverlay::new();
+            self.app_state.search_open = true;
+        }
+
+        // Terminal content is rendered via egui's text rendering
+        // GPU-accelerated rendering via TerminalRenderer can be added
+        // later by rendering to a texture and displaying as an egui Image
 
         window.request_redraw();
     }

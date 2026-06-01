@@ -40,4 +40,14 @@ pub trait Pane: Send + Sync + std::fmt::Debug {
 
     /// Returns the pane's terminal size.
     fn get_size(&self) -> portable_pty::PtySize;
+
+    /// Get the visible lines from the terminal as strings.
+    fn get_visible_lines(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Get the cursor position (col, row).
+    fn get_cursor_position(&self) -> (usize, usize) {
+        (0, 0)
+    }
 }

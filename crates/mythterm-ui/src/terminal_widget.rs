@@ -3,14 +3,15 @@
 //! Displays the terminal content as an egui widget, handling
 //! click events, scroll, and selection.
 
-use egui::{Color32, Response, Sense, Ui, Vec2, Widget};
+use egui::{Color32, FontId, Rect, Response, Sense, Ui, Vec2, Widget};
 
 /// A widget that displays terminal content.
 ///
 /// Renders a terminal grid with text, cursor, and selection.
-/// For now, this is a placeholder that will be connected to
-/// the actual terminal renderer.
+/// Uses egui's built-in text rendering for immediate display.
 pub struct TerminalWidget {
+    /// Lines of text to display.
+    lines: Vec<String>,
     /// Width in cells.
     cols: usize,
     /// Height in cells.
@@ -23,18 +24,38 @@ pub struct TerminalWidget {
     bg_color: Color32,
     /// Foreground color.
     fg_color: Color32,
+    /// Cursor position (col, row).
+    cursor: Option<(usize, usize)>,
 }
 
 impl TerminalWidget {
-    /// Create a new terminal widget.
+    /// Create a new terminal widget with empty content.
     pub fn new(cols: usize, rows: usize, cell_width: f32, cell_height: f32) -> Self {
         Self {
+            lines: vec![String::new(); rows],
             cols,
             rows,
             cell_width,
             cell_height,
             bg_color: Color32::from_rgb(30, 30, 30),
             fg_color: Color32::from_rgb(192, 192, 192),
+            cursor: Some((0, 0)),
+        }
+    }
+
+    /// Create a terminal widget with content.
+    pub fn with_content(lines: Vec<String>, cell_width: f32, cell_height: f32) -> Self {
+        let rows = lines.len().max(1);
+        let cols = lines.iter().map(|l| l.len()).max().unwrap_or(80);
+        Self {
+            lines,
+            cols,
+            rows,
+            cell_width,
+            cell_height,
+            bg_color: Color32::from_rgb(30, 30, 30),
+            fg_color: Color32::from_rgb(192, 192, 192),
+            cursor: Some((0, 0)),
         }
     }
 
@@ -49,6 +70,17 @@ impl TerminalWidget {
         self.fg_color = color;
         self
     }
+
+    /// Set the cursor position.
+    pub fn cursor(mut self, col: usize, row: usize) -> Self {
+        self.cursor = Some((col, row));
+        self
+    }
+
+    /// Update the content from terminal lines.
+    pub fn set_lines(&mut self, lines: Vec<String>) {
+        self.lines = lines;
+    }
 }
 
 impl Widget for TerminalWidget {
@@ -61,38 +93,40 @@ impl Widget for TerminalWidget {
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click_and_drag());
 
         if ui.is_rect_visible(rect) {
+            let painter = ui.painter();
+
             // Draw background
-            ui.painter().rect_filled(rect, 0.0, self.bg_color);
+            painter.rect_filled(rect, 0.0, self.bg_color);
 
-            // Draw grid lines (for debugging)
-            for row in 0..self.rows {
+            // Draw text lines
+            let font_id = FontId::monospace(self.cell_height * 0.8);
+
+            for (row, line) in self.lines.iter().enumerate() {
                 let y = rect.min.y + row as f32 * self.cell_height;
-                ui.painter().line_segment(
-                    [
-                        egui::pos2(rect.min.x, y),
-                        egui::pos2(rect.max.x, y),
-                    ],
-                    egui::Stroke::new(0.5, Color32::from_rgba_premultiplied(60, 60, 60, 128)),
+                let x = rect.min.x + 2.0; // Small padding
+
+                // Draw the line text
+                painter.text(
+                    egui::pos2(x, y),
+                    egui::Align2::LEFT_TOP,
+                    line,
+                    font_id.clone(),
+                    self.fg_color,
                 );
             }
 
-            for col in 0..self.cols {
-                let x = rect.min.x + col as f32 * self.cell_width;
-                ui.painter().line_segment(
-                    [
-                        egui::pos2(x, rect.min.y),
-                        egui::pos2(x, rect.max.y),
-                    ],
-                    egui::Stroke::new(0.5, Color32::from_rgba_premultiplied(60, 60, 60, 128)),
-                );
+            // Draw cursor
+            if let Some((col, row)) = self.cursor {
+                if row < self.rows && col < self.cols {
+                    let cursor_x = rect.min.x + col as f32 * self.cell_width;
+                    let cursor_y = rect.min.y + row as f32 * self.cell_height;
+                    let cursor_rect = Rect::from_min_size(
+                        egui::pos2(cursor_x, cursor_y),
+                        Vec2::new(self.cell_width, self.cell_height),
+                    );
+                    painter.rect_filled(cursor_rect, 0.0, Color32::from_rgb(200, 200, 200));
+                }
             }
-
-            // TODO: Render actual terminal content here
-            // This would involve:
-            // 1. Getting the terminal state from the mux
-            // 2. Rendering each cell with the appropriate glyph and color
-            // 3. Drawing the cursor
-            // 4. Drawing selection highlights
         }
 
         response

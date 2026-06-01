@@ -66,6 +66,61 @@ impl FontDiscovery {
     fn find_font_fallback(&self, family: &str, bold: bool, italic: bool) -> Result<FontData> {
         let dirs = self.font_directories();
 
+        // Map common family names to file name patterns
+        let family_lower = family.to_lowercase();
+        let patterns: Vec<&str> = match family_lower.as_str() {
+            "monospace" | "mono" | "courier" => vec!["Courier", "Mono", "Consolas", "Liberation Mono", "DejaVu Sans Mono"],
+            "sans-serif" | "sans" | "arial" => vec!["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
+            "serif" | "times" => vec!["Times", "Liberation Serif", "DejaVu Serif"],
+            _ => vec![family],
+        };
+
+        for dir in &dirs {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+
+                    if let Some(ext) = path.extension() {
+                        let ext = ext.to_string_lossy().to_lowercase();
+                        if ext != "ttf" && ext != "otf" && ext != "ttc" {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    // Check if file name matches any pattern
+                    let matches_pattern = patterns.iter().any(|p| {
+                        file_name.contains(&p.to_lowercase())
+                    });
+
+                    if !matches_pattern {
+                        continue;
+                    }
+
+                    // Check bold/italic match
+                    let is_bold = file_name.contains("bold");
+                    let is_italic = file_name.contains("italic") || file_name.contains("oblique");
+
+                    if is_bold != bold || is_italic != italic {
+                        continue;
+                    }
+
+                    if let Ok(data) = std::fs::read(&path) {
+                        return Ok(FontData {
+                            data,
+                            family: family.to_string(),
+                            index: 0,
+                            bold,
+                            italic,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Last resort: return the first font file found
         for dir in &dirs {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries.flatten() {
@@ -73,10 +128,7 @@ impl FontDiscovery {
                     if let Some(ext) = path.extension() {
                         let ext = ext.to_string_lossy().to_lowercase();
                         if ext == "ttf" || ext == "otf" || ext == "ttc" {
-                            // Try to load and check if it matches
                             if let Ok(data) = std::fs::read(&path) {
-                                // For now, return the first font found
-                                // TODO: Parse font name tables to match family
                                 return Ok(FontData {
                                     data,
                                     family: family.to_string(),

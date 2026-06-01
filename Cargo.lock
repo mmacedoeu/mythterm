@@ -2362,6 +2362,7 @@ dependencies = [
  "mythterm-render",
  "mythterm-ui",
  "pollster",
+ "portable-pty",
  "wgpu",
  "winit",
 ]
