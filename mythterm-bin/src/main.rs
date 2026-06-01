@@ -256,13 +256,40 @@ impl ApplicationHandler for MythtermApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(new_size) => {
+                // Update wgpu surface
                 if let (Some(device), Some(surface), Some(config)) = (&self.device, &self.surface, &mut self.surface_config) {
                     config.width = new_size.width.max(1);
                     config.height = new_size.height.max(1);
                     surface.configure(device, config);
                 }
+                // Update egui screen descriptor
                 if let Some(egui) = &mut self.egui {
                     egui.screen_descriptor.size_in_pixels = [new_size.width, new_size.height];
+                }
+                // Calculate new terminal size in cells
+                // Account for tab bar height (32px) and scale factor
+                let scale = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
+                let tab_bar_height = 32.0 * scale;
+                let avail_width = new_size.width as f32;
+                let avail_height = (new_size.height as f32 - tab_bar_height).max(1.0);
+                let cols = (avail_width / (self.metrics.cell_width * scale)).max(1.0) as u16;
+                let rows = (avail_height / (self.metrics.cell_height * scale)).max(1.0) as u16;
+
+                log::debug!("Resize: {}x{} -> {}cols x {}rows", new_size.width, new_size.height, cols, rows);
+
+                // Notify active pane of new size
+                if let Some(pane_id) = self.active_pane {
+                    if let Some(pane) = self.mux.get_pane(pane_id) {
+                        let new_size = portable_pty::PtySize {
+                            rows,
+                            cols,
+                            pixel_width: new_size.width as u16,
+                            pixel_height: new_size.height as u16,
+                        };
+                        if let Err(e) = pane.resize(new_size) {
+                            log::error!("Failed to resize pane {}: {}", pane_id, e);
+                        }
+                    }
                 }
                 if let Some(w) = &self.window { w.request_redraw(); }
             }
