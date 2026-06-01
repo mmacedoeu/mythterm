@@ -7,7 +7,6 @@ members = [
     "crates/mythterm-mux",
     "crates/mythterm-render",
     "crates/mythterm-ui",
-    "crates/winit-smoke",
     "mythterm-bin",
 ]
 

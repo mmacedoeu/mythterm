@@ -7,11 +7,13 @@
 //! - Overlay system (search, command palette)
 //! - Toast notifications
 
+pub mod input;
 pub mod overlay;
 pub mod splits;
 pub mod tabbar;
 pub mod terminal_widget;
 
+pub use input::InputMapper;
 pub use tabbar::TabBar;
 pub use terminal_widget::TerminalWidget;
 
