@@ -341,15 +341,28 @@ impl Pane for LocalPane {
         let screen = term.screen();
         let scrollback = screen.scrollback_rows();
         let visible = screen.physical_rows;
-        let total = scrollback + visible;
-        
+        let total_lines = scrollback + visible;
+
+        log::trace!("get_visible_lines: scrollback={}, visible={}, total={}", scrollback, visible, total_lines);
+
+        if total_lines == 0 {
+            return Vec::new();
+        }
+
         // Get the visible lines (last `visible` rows)
-        let start = if total >= visible { total - visible } else { 0 };
-        let lines = screen.lines_in_phys_range(start..total);
-        
-        lines.iter().map(|line| {
-            line.as_str().into_owned()
-        }).collect()
+        let start = if total_lines >= visible { total_lines - visible } else { 0 };
+        let lines = screen.lines_in_phys_range(start..total_lines);
+
+        let result: Vec<String> = lines.iter().map(|line| {
+            let s = line.as_str().into_owned();
+            if !s.trim().is_empty() {
+                log::trace!("line: {:?}", s);
+            }
+            s
+        }).collect();
+
+        log::trace!("get_visible_lines returning {} lines", result.len());
+        result
     }
 
     fn get_cursor_position(&self) -> (usize, usize) {
