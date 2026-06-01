@@ -7,12 +7,15 @@ license.workspace = true
 description = "egui-based UI: tab bar, splits, overlays, settings, command palette"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
+# egui (without winit for now - winit has compilation issues)
 egui.workspace = true
-egui-wgpu.workspace = true
-egui-winit.workspace = true
 mythterm-core.workspace = true
 mythterm-mux.workspace = true
 mythterm-config.workspace = true
 mythterm-render.workspace = true
+
+# Utilities
+anyhow.workspace = true
+log.workspace = true
+
+[dev-dependencies]
