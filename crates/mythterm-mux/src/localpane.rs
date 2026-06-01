@@ -344,8 +344,6 @@ impl Pane for LocalPane {
         let visible = screen.physical_rows;
         let total_lines = scrollback + visible;
 
-        eprintln!("[LINES] scrollback={}, visible={}, total={}", scrollback, visible, total_lines);
-
         if total_lines == 0 {
             return Vec::new();
         }
@@ -354,13 +352,15 @@ impl Pane for LocalPane {
         let start = if total_lines >= visible { total_lines - visible } else { 0 };
         let lines = screen.lines_in_phys_range(start..total_lines);
 
-        let result: Vec<String> = lines.iter().enumerate().map(|(i, line)| {
-            let s = line.as_str().into_owned();
+        let mut result = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            // Try columns_as_str for the full line width
+            let s = line.columns_as_str(0..visible);
             if !s.trim().is_empty() {
                 eprintln!("[LINES] row {}: {:?}", start + i, s);
             }
-            s
-        }).collect();
+            result.push(s);
+        }
 
         eprintln!("[LINES] returning {} lines", result.len());
         result
