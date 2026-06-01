@@ -191,7 +191,8 @@ impl ApplicationHandler for MythtermApp {
 
         let attrs = Window::default_attributes()
             .with_title("mythterm")
-            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768));
+            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768))
+            .with_transparent(true);
         let window = Arc::new(event_loop.create_window(attrs).expect("Failed to create window"));
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -220,13 +221,24 @@ impl ApplicationHandler for MythtermApp {
             let caps = surface.get_capabilities(&adapter);
             let format = caps.formats[0];
 
+            // Prefer an alpha mode that supports transparency
+            let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+                wgpu::CompositeAlphaMode::PreMultiplied
+            } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::PostMultiplied) {
+                wgpu::CompositeAlphaMode::PostMultiplied
+            } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Inherit) {
+                wgpu::CompositeAlphaMode::Inherit
+            } else {
+                caps.alpha_modes[0]
+            };
+
             let surface_config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format,
                 width: size.width.max(1),
                 height: size.height.max(1),
                 present_mode: wgpu::PresentMode::AutoVsync,
-                alpha_mode: caps.alpha_modes[0],
+                alpha_mode,
                 view_formats: vec![],
                 desired_maximum_frame_latency: 2,
             };
