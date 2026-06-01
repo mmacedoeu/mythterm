@@ -246,6 +246,53 @@ impl ApplicationHandler for MythtermApp {
         });
 
         let egui_ctx = Context::default();
+
+        // Load Nerd Font for terminal rendering
+        let font_discovery = mythterm_font::FontDiscovery::new();
+        let mut font_loaded = false;
+
+        // Try to load a Nerd Font
+        for family in &[
+            "JetBrainsMono Nerd Font",
+            "FiraCode Nerd Font",
+            "Hack Nerd Font",
+            "Iosevka Nerd Font",
+            "Cascadia Code",
+            "monospace",
+        ] {
+            if let Ok(font_data) = font_discovery.find_font(family, false, false) {
+                log::info!("Loaded font: {}", family);
+                let mut fonts = egui::FontDefinitions::default();
+                fonts.font_data.insert(
+                    "terminal_font".to_owned(),
+                    Arc::new(egui::FontData::from_owned(font_data.data)),
+                );
+                // Set as the default monospace font
+                fonts.families
+                    .entry(egui::FontFamily::Monospace)
+                    .or_default()
+                    .insert(0, "terminal_font".to_owned());
+                // Also add to proportional as fallback
+                fonts.families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .push("terminal_font".to_owned());
+                egui_ctx.set_fonts(fonts);
+                font_loaded = true;
+                break;
+            }
+        }
+
+        // Log available fallback fonts (Nerd Font symbols, emoji)
+        let fallbacks = font_discovery.find_fallback_fonts();
+        for fallback in &fallbacks {
+            log::info!("Found fallback font: {} ({} bytes)", fallback.family, fallback.data.len());
+        }
+
+        if !font_loaded {
+            log::warn!("No custom font loaded, using egui default");
+        }
+
         let viewport_id = egui_ctx.viewport_id();
         let egui_state = egui_winit::State::new(egui_ctx.clone(), viewport_id, &window, None, None, None);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, egui_wgpu::RendererOptions::default());
