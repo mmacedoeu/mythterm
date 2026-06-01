@@ -146,9 +146,9 @@ impl Widget for TerminalWidget {
             let bg = Color32::from_rgba_premultiplied(r, g, b, a);
             painter.rect_filled(rect, 0.0, bg);
 
-            // Measure actual monospace character width from egui
+            // Calculate character width from font height (typical monospace ratio)
             let font_id = FontId::monospace(self.cell_height * 0.8);
-            let char_width = ui.fonts(|f| f.glyph_width(&font_id, 'M'));
+            let char_width = self.cell_height * 0.6; // Typical monospace: width ≈ 0.6 * height
 
             // Draw text lines
             for (row, line) in self.lines.iter().enumerate() {
