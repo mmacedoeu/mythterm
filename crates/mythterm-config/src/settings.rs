@@ -4,6 +4,7 @@ use crate::scheme::ColorScheme;
 
 /// Top-level mythterm configuration, loaded from TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     /// Font family name.
     pub font_family: String,
