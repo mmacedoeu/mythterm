@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use url::Url;
 use wezterm_term::{Terminal, TerminalConfiguration, TerminalSize};
+use std::sync::Mutex as StdMutex;
 
 /// State of the child process.
 #[derive(Debug)]
@@ -62,6 +63,8 @@ pub struct LocalPane {
     reader_handle: Option<JoinHandle<()>>,
     /// Writer thread handle.
     writer_handle: Option<JoinHandle<()>>,
+    /// Resize sender - sends new size to the resize handler thread.
+    resize_sender: flume::Sender<PtySize>,
 }
 
 impl std::fmt::Debug for LocalPane {
@@ -109,6 +112,9 @@ impl LocalPane {
         let mut pty_writer: Box<dyn Write + Send> = master
             .take_writer()
             .context("Failed to take PTY writer")?;
+
+        // Wrap master in Arc<StdMutex> for sharing between threads
+        let master = Arc::new(StdMutex::new(master));
 
         // Create the terminal emulator with a ChannelWriter
         let terminal_size = TerminalSize {
@@ -158,14 +164,18 @@ impl LocalPane {
         let reader_terminal = terminal.clone();
         let reader_process = process.clone();
         let reader_running = running.clone();
+        let reader_master = master.clone();
         let reader_handle = std::thread::Builder::new()
             .name(format!("pty-reader-{}", pane_id))
             .spawn(move || {
-                let mut reader = match master.try_clone_reader() {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("PTY reader {}: failed to clone reader: {}", pane_id, e);
-                        return;
+                let mut reader = {
+                    let master = reader_master.lock().unwrap();
+                    match master.try_clone_reader() {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log::error!("PTY reader {}: failed to clone reader: {}", pane_id, e);
+                            return;
+                        }
                     }
                 };
 
@@ -177,7 +187,6 @@ impl LocalPane {
 
                     match std::io::Read::read(&mut reader, &mut buf) {
                         Ok(0) => {
-                            // EOF - process exited
                             log::debug!("PTY reader {}: EOF", pane_id);
                             break;
                         }
@@ -196,11 +205,46 @@ impl LocalPane {
                     }
                 }
 
-                // Mark process as dead
                 *reader_process.lock() = ProcessState::Dead(None);
                 log::debug!("PTY reader {} thread exiting", pane_id);
             })
             .context("Failed to spawn PTY reader thread")?;
+
+        // Create resize channel
+        let (resize_sender, resize_receiver) = flume::unbounded::<PtySize>();
+
+        // Spawn resize handler thread that owns the master PTY
+        let resize_terminal = terminal.clone();
+        let resize_running = running.clone();
+        let resize_master = master.clone();
+        std::thread::Builder::new()
+            .name(format!("pty-resize-{}", pane_id))
+            .spawn(move || {
+                while resize_running.load(Ordering::Relaxed) {
+                    match resize_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(new_size) => {
+                            {
+                                let master = resize_master.lock().unwrap();
+                                if let Err(e) = master.resize(new_size) {
+                                    log::error!("PTY resize {}: error: {}", pane_id, e);
+                                }
+                            }
+                            let terminal_size = TerminalSize {
+                                rows: new_size.rows as usize,
+                                cols: new_size.cols as usize,
+                                pixel_width: new_size.pixel_width as usize,
+                                pixel_height: new_size.pixel_height as usize,
+                                dpi: 96,
+                            };
+                            resize_terminal.lock().resize(terminal_size);
+                        }
+                        Err(flume::RecvTimeoutError::Timeout) => continue,
+                        Err(flume::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                log::debug!("PTY resize {} thread exiting", pane_id);
+            })
+            .context("Failed to spawn PTY resize thread")?;
 
         Ok(Self {
             pane_id,
@@ -210,6 +254,7 @@ impl LocalPane {
             running,
             reader_handle: Some(reader_handle),
             writer_handle: Some(writer_handle),
+            resize_sender,
         })
     }
 
@@ -272,17 +317,11 @@ impl Pane for LocalPane {
     }
 
     fn resize(&self, size: PtySize) -> Result<()> {
-        // The PTY resize is handled by the master PTY
-        // We need to get the master PTY - but it's moved into the reader thread
-        // For now, we just resize the terminal emulator
-        let terminal_size = TerminalSize {
-            rows: size.rows as usize,
-            cols: size.cols as usize,
-            pixel_width: size.pixel_width as usize,
-            pixel_height: size.pixel_height as usize,
-            dpi: 96,
-        };
-        self.terminal.lock().resize(terminal_size);
+        // Send resize to the resize handler thread
+        if let Err(e) = self.resize_sender.send(size) {
+            log::error!("Failed to send resize for pane {}: {}", self.pane_id, e);
+            return Err(anyhow::anyhow!("Resize channel closed"));
+        }
         Ok(())
     }
 
@@ -298,10 +337,19 @@ impl Pane for LocalPane {
     }
 
     fn get_visible_lines(&self) -> Vec<String> {
-        // The visible_lines() method is test-only in wezterm-term.
-        // Return empty for now - actual content will be rendered
-        // through the GPU rendering pipeline.
-        Vec::new()
+        let term = self.terminal.lock();
+        let screen = term.screen();
+        let scrollback = screen.scrollback_rows();
+        let visible = screen.physical_rows;
+        let total = scrollback + visible;
+        
+        // Get the visible lines (last `visible` rows)
+        let start = if total >= visible { total - visible } else { 0 };
+        let lines = screen.lines_in_phys_range(start..total);
+        
+        lines.iter().map(|line| {
+            line.as_str().into_owned()
+        }).collect()
     }
 
     fn get_cursor_position(&self) -> (usize, usize) {
