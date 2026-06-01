@@ -338,28 +338,30 @@ impl Pane for LocalPane {
     }
 
     fn get_visible_lines(&self) -> Vec<String> {
-        let term = self.terminal.lock();
-        let screen = term.screen();
-        let scrollback = screen.scrollback_rows();
-        let visible = screen.physical_rows;
-        let total_lines = scrollback + visible;
-
-        if total_lines == 0 {
-            return Vec::new();
-        }
-
-        // Get the visible lines (last `visible` rows)
-        let start = if total_lines >= visible { total_lines - visible } else { 0 };
-        let lines = screen.lines_in_phys_range(start..total_lines);
+        let mut term = self.terminal.lock();
+        let visible = term.get_size().rows;
+        let cols = term.get_size().cols;
 
         let mut result = Vec::new();
-        for (i, line) in lines.iter().enumerate() {
-            // Try columns_as_str for the full line width
-            let s = line.columns_as_str(0..visible);
-            if !s.trim().is_empty() {
-                eprintln!("[LINES] row {}: {:?}", start + i, s);
+        for row in 0..visible {
+            let mut line = String::new();
+            for col in 0..cols {
+                if let Some(cell) = term.screen_mut().get_cell(col, row as i64) {
+                    let ch = cell.str();
+                    if !ch.is_empty() {
+                        line.push_str(ch);
+                    } else {
+                        line.push(' ');
+                    }
+                } else {
+                    line.push(' ');
+                }
             }
-            result.push(s);
+            let trimmed = line.trim_end().to_string();
+            if !trimmed.is_empty() {
+                eprintln!("[LINES] row {}: {:?}", row, trimmed);
+            }
+            result.push(line);
         }
 
         eprintln!("[LINES] returning {} lines", result.len());
