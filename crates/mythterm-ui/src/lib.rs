@@ -7,12 +7,14 @@
 //! - Overlay system (search, command palette)
 //! - Toast notifications
 
+pub mod clipboard;
 pub mod input;
 pub mod overlay;
 pub mod splits;
 pub mod tabbar;
 pub mod terminal_widget;
 
+pub use clipboard::{ClipboardHandler, ClipboardProvider, PlatformClipboard};
 pub use input::InputMapper;
 pub use tabbar::TabBar;
 pub use terminal_widget::TerminalWidget;
