@@ -1,7 +1,6 @@
 //! Terminal widget: egui widget that renders terminal content.
 
 use egui::{Color32, FontId, Rect, Response, Sense, Ui, Vec2, Widget};
-use std::time::Instant;
 
 /// Cursor style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,14 +165,12 @@ impl Widget for TerminalWidget {
             // Draw cursor with blink
             if let Some((col, row)) = self.cursor {
                 if row < self.rows && col < self.cols {
-                    // Calculate blink state based on time
+                    // Calculate blink state using egui time
                     let show_cursor = if self.cursor_blink_ms > 0 {
-                        let _ms = Instant::now()
-                            .duration_since(Instant::now())
-                            .as_millis() as u64;
-                        // Use egui's repaint mechanism for animation
-                        // For now, always show cursor (blink handled by request_repaint)
-                        true
+                        let time_secs = ui.input(|i| i.time);
+                        let blink_secs = self.cursor_blink_ms as f64 / 1000.0;
+                        let phase = (time_secs / blink_secs) as u64;
+                        phase % 2 == 0
                     } else {
                         true
                     };
