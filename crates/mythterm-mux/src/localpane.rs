@@ -362,10 +362,67 @@ impl Pane for LocalPane {
         result
     }
 
+    fn get_colored_lines(&self) -> Vec<(String, Vec<([u8; 3], [u8; 3])>)> {
+        let mut term = self.terminal.lock();
+        let visible = term.get_size().rows;
+        let cols = term.get_size().cols;
+        let palette = term.palette();
+
+        let mut result = Vec::new();
+        for row in 0..visible {
+            let mut line = String::new();
+            let mut colors = Vec::new();
+            for col in 0..cols {
+                if let Some(cell) = term.screen_mut().get_cell(col, row as i64) {
+                    let ch = cell.str();
+                    if !ch.is_empty() {
+                        line.push_str(ch);
+                    } else {
+                        line.push(' ');
+                    }
+
+                    // Get foreground and background colors
+                    let fg = resolve_color(cell.attrs().foreground(), &palette, [192, 192, 192]);
+                    let bg = resolve_color(cell.attrs().background(), &palette, [30, 30, 30]);
+                    colors.push((fg, bg));
+                } else {
+                    line.push(' ');
+                    colors.push(([192, 192, 192], [30, 30, 30]));
+                }
+            }
+            result.push((line, colors));
+        }
+
+        result
+    }
+
     fn get_cursor_position(&self) -> (usize, usize) {
         let term = self.terminal.lock();
         let cursor = term.cursor_pos();
         (cursor.x, cursor.y.max(0) as usize)
+    }
+}
+
+/// Resolve a ColorAttribute to an RGB color using the palette.
+fn resolve_color(
+    color: wezterm_term::color::ColorAttribute,
+    palette: &wezterm_term::color::ColorPalette,
+    default: [u8; 3],
+) -> [u8; 3] {
+    use wezterm_term::color::ColorAttribute;
+
+    match color {
+        ColorAttribute::TrueColorWithPaletteFallback(srgba, _)
+        | ColorAttribute::TrueColorWithDefaultFallback(srgba) => {
+            let (r, g, b, _) = srgba.to_tuple_rgba();
+            [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
+        }
+        ColorAttribute::PaletteIndex(idx) => {
+            let srgba = palette.colors.0[idx as usize];
+            let (r, g, b, _) = srgba.to_tuple_rgba();
+            [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
+        }
+        ColorAttribute::Default => default,
     }
 }
 

@@ -8,6 +8,7 @@
 //! - Toast notifications
 
 pub mod clipboard;
+pub mod colored;
 pub mod input;
 pub mod overlay;
 pub mod splits;

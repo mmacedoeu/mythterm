@@ -485,10 +485,14 @@ impl MythtermApp {
         egui::CentralPanel::default().show(&egui.egui_ctx, |ui| {
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
-                    let lines = pane.get_visible_lines();
+                    let colored_lines = pane.get_colored_lines();
                     let cursor = pane.get_cursor_position();
 
-                    let mut widget = TerminalWidget::with_content(lines, self.metrics.cell_width, self.metrics.cell_height);
+                    let mut widget = TerminalWidget::with_colored_content(
+                        colored_lines,
+                        self.metrics.cell_width,
+                        self.metrics.cell_height,
+                    );
                     widget = widget.cursor(cursor.0, cursor.1).bg_opacity(self.bg_opacity);
                     ui.add(widget);
                 }

@@ -50,4 +50,11 @@ pub trait Pane: Send + Sync + std::fmt::Debug {
     fn get_cursor_position(&self) -> (usize, usize) {
         (0, 0)
     }
+
+    /// Get visible lines with color information.
+    /// Returns a Vec of (text, Vec<(fg_r, fg_g, fg_b, bg_r, bg_g, bg_b)>) per line.
+    /// Default implementation returns empty (no colors).
+    fn get_colored_lines(&self) -> Vec<(String, Vec<([u8; 3], [u8; 3])>)> {
+        Vec::new()
+    }
 }

@@ -15,8 +15,12 @@ pub enum CursorStyle {
 
 /// A widget that displays terminal content.
 pub struct TerminalWidget {
-    /// Lines of text to display.
+    /// Lines of text to display (plain text, no colors).
     lines: Vec<String>,
+    /// Colored lines (text + per-character colors).
+    colored_lines: Vec<(String, Vec<([u8; 3], [u8; 3])>)>,
+    /// Whether to use colored_lines instead of lines.
+    use_colors: bool,
     /// Width in cells.
     cols: usize,
     /// Height in cells.
@@ -46,6 +50,8 @@ impl TerminalWidget {
     pub fn new(cols: usize, rows: usize, cell_width: f32, cell_height: f32) -> Self {
         Self {
             lines: vec![String::new(); rows],
+            colored_lines: Vec::new(),
+            use_colors: false,
             cols,
             rows,
             cell_width,
@@ -60,12 +66,41 @@ impl TerminalWidget {
         }
     }
 
-    /// Create a terminal widget with content.
+    /// Create a terminal widget with plain text content.
     pub fn with_content(lines: Vec<String>, cell_width: f32, cell_height: f32) -> Self {
         let rows = lines.len().max(1);
         let cols = lines.iter().map(|l| l.len()).max().unwrap_or(80);
         Self {
             lines,
+            colored_lines: Vec::new(),
+            use_colors: false,
+            cols,
+            rows,
+            cell_width,
+            cell_height,
+            bg_color: Color32::from_rgb(30, 30, 30),
+            fg_color: Color32::from_rgb(192, 192, 192),
+            cursor: Some((0, 0)),
+            cursor_style: CursorStyle::Block,
+            bg_opacity: 1.0,
+            cursor_blink_ms: 500,
+            cursor_color: Color32::from_rgb(200, 200, 200),
+        }
+    }
+
+    /// Create a terminal widget with colored content.
+    pub fn with_colored_content(
+        colored_lines: Vec<(String, Vec<([u8; 3], [u8; 3])>)>,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> Self {
+        let rows = colored_lines.len().max(1);
+        let cols = colored_lines.iter().map(|(l, _)| l.len()).max().unwrap_or(80);
+        let lines = colored_lines.iter().map(|(l, _)| l.clone()).collect();
+        Self {
+            lines,
+            colored_lines,
+            use_colors: true,
             cols,
             rows,
             cell_width,
@@ -152,13 +187,52 @@ impl Widget for TerminalWidget {
             for (row, line) in self.lines.iter().enumerate() {
                 let y = rect.min.y + row as f32 * self.cell_height;
 
-                // Layout the full line to get accurate glyph positions
-                let galley = painter.layout_no_wrap(
-                    line.clone(),
-                    font_id.clone(),
-                    self.fg_color,
-                );
-                painter.galley(egui::pos2(rect.min.x, y), galley.clone(), self.fg_color);
+                if self.use_colors {
+                    // Render with per-character colors
+                    if let Some((_, colors)) = self.colored_lines.get(row) {
+                        let mut x = rect.min.x;
+                        for (ch, (fg_rgb, bg_rgb)) in line.chars().zip(colors.iter()) {
+                            let ch_str = ch.to_string();
+                            let ch_width = painter.layout_no_wrap(
+                                ch_str.clone(),
+                                font_id.clone(),
+                                Color32::TRANSPARENT,
+                            ).size().x;
+
+                            // Draw character background if not default
+                            if *bg_rgb != [30, 30, 30] {
+                                let bg_rect = Rect::from_min_size(
+                                    egui::pos2(x, y),
+                                    Vec2::new(ch_width, self.cell_height),
+                                );
+                                let [r, g, b] = bg_rgb;
+                                let a = (self.bg_opacity * 255.0) as u8;
+                                painter.rect_filled(bg_rect, 0.0, Color32::from_rgba_premultiplied(*r, *g, *b, a));
+                            }
+
+                            // Draw character
+                            let [r, g, b] = fg_rgb;
+                            let fg = Color32::from_rgb(*r, *g, *b);
+                            painter.text(
+                                egui::pos2(x, y),
+                                egui::Align2::LEFT_TOP,
+                                &ch_str,
+                                font_id.clone(),
+                                fg,
+                            );
+
+                            x += ch_width;
+                        }
+                    }
+                } else {
+                    // Render with default colors
+                    let galley = painter.layout_no_wrap(
+                        line.clone(),
+                        font_id.clone(),
+                        self.fg_color,
+                    );
+                    painter.galley(egui::pos2(rect.min.x, y), galley, self.fg_color);
+                }
 
                 // Draw cursor on this row
                 if let Some((col, row_idx)) = self.cursor {
