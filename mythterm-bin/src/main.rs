@@ -95,8 +95,24 @@ impl MythtermApp {
         let domain = self.local_domain.as_ref()
             .ok_or_else(|| anyhow::anyhow!("Local domain not initialized"))?;
 
+        // Calculate terminal size from current window
+        let size = if let Some(window) = &self.window {
+            let ws = window.inner_size();
+            let scale = window.scale_factor() as f32;
+            let tab_bar_height = 32.0 * scale;
+            let cols = ((ws.width as f32) / (self.metrics.cell_width * scale)).max(1.0) as u16;
+            let rows = (((ws.height as f32) - tab_bar_height) / (self.metrics.cell_height * scale)).max(1.0) as u16;
+            portable_pty::PtySize {
+                rows,
+                cols,
+                pixel_width: ws.width as u16,
+                pixel_height: ws.height as u16,
+            }
+        } else {
+            portable_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }
+        };
+
         let pane_id = self.mux.alloc_pane_id();
-        let size = portable_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 };
         let pane = domain.spawn(pane_id, size, None)?;
         let tab_id = self.mux.alloc_tab_id();
         self.mux.insert_pane(pane);
