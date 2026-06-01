@@ -146,15 +146,16 @@ impl Widget for TerminalWidget {
             let bg = Color32::from_rgba_premultiplied(r, g, b, a);
             painter.rect_filled(rect, 0.0, bg);
 
-            // Draw text lines
+            // Measure actual monospace character width from egui
             let font_id = FontId::monospace(self.cell_height * 0.8);
+            let char_width = ui.fonts(|f| f.glyph_width(&font_id, 'M')).unwrap_or(self.cell_width);
 
+            // Draw text lines
             for (row, line) in self.lines.iter().enumerate() {
                 let y = rect.min.y + row as f32 * self.cell_height;
-                let x = rect.min.x + 2.0;
 
                 painter.text(
-                    egui::pos2(x, y),
+                    egui::pos2(rect.min.x, y),
                     egui::Align2::LEFT_TOP,
                     line,
                     font_id.clone(),
@@ -176,7 +177,7 @@ impl Widget for TerminalWidget {
                     };
 
                     if show_cursor {
-                        let cursor_x = rect.min.x + col as f32 * self.cell_width;
+                        let cursor_x = rect.min.x + col as f32 * char_width;
                         let cursor_y = rect.min.y + row as f32 * self.cell_height;
 
                         match self.cursor_style {
