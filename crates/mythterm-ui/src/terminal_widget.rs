@@ -148,7 +148,7 @@ impl Widget for TerminalWidget {
 
             // Measure actual monospace character width from egui
             let font_id = FontId::monospace(self.cell_height * 0.8);
-            let char_width = ui.fonts(|f| f.glyph_width(&font_id, 'M')).unwrap_or(self.cell_width);
+            let char_width = ui.fonts(|f| f.glyph_width(&font_id, 'M'));
 
             // Draw text lines
             for (row, line) in self.lines.iter().enumerate() {
