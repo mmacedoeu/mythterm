@@ -282,6 +282,9 @@ impl ApplicationHandler for MythtermApp {
                         if let Some(vt_seq) = self.input_mapper.map_key(ek, &modifiers, text) {
                             self.send_input(vt_seq);
                         }
+                    } else if let Some(t) = text {
+                        // Printable characters (space, symbols, etc.)
+                        self.send_input(t.as_bytes().to_vec());
                     }
                 }
             }
