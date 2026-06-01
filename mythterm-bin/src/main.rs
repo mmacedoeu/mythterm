@@ -102,6 +102,60 @@ impl MythtermApp {
         Ok(pane_id)
     }
 
+    /// Sync active_pane with the active_tab index.
+    fn sync_active_pane(&mut self) {
+        let tabs: Vec<_> = self.mux.iter_tabs();
+        if let Some(tab) = tabs.get(self.app_state.active_tab) {
+            if let Some(pane) = tab.get_active_pane() {
+                self.active_pane = Some(pane.pane_id());
+            }
+        }
+    }
+
+    /// Remove dead panes and their tabs. Returns true if any were removed.
+    fn cleanup_dead_panes(&mut self) -> bool {
+        let mut removed = false;
+        let pane_ids: Vec<_> = self.mux.iter_panes().iter()
+            .filter(|p| p.is_dead())
+            .map(|p| p.pane_id())
+            .collect();
+
+        for pane_id in pane_ids {
+            log::info!("Pane {} exited, removing", pane_id);
+            self.mux.remove_pane(pane_id);
+
+            // Find and remove the tab containing this pane
+            let tabs: Vec<_> = self.mux.iter_tabs();
+            for (tab_idx, tab) in tabs.iter().enumerate() {
+                if tab.panes().iter().any(|p| p.pane_id() == pane_id) {
+                    let tab_id = tab.tab_id();
+                    self.mux.remove_tab(tab_id);
+                    // Remove the corresponding tab title
+                    if tab_idx < self.app_state.tab_titles.len() {
+                        self.app_state.tab_titles.remove(tab_idx);
+                    }
+                    removed = true;
+                    break;
+                }
+            }
+        }
+
+        // If current pane was removed, switch to first available
+        if removed {
+            if self.active_pane.map_or(false, |id| self.mux.get_pane(id).is_none()) {
+                let panes = self.mux.iter_panes();
+                self.active_pane = panes.first().map(|p| p.pane_id());
+                self.app_state.active_tab = 0;
+            }
+            // If no panes left, spawn a new one
+            if self.active_pane.is_none() {
+                let _ = self.spawn_pane();
+            }
+        }
+
+        removed
+    }
+
     fn send_input(&self, data: Vec<u8>) {
         if let Some(pane_id) = self.active_pane {
             if let Some(pane) = self.mux.get_pane(pane_id) {
@@ -305,11 +359,13 @@ impl MythtermApp {
         let mut open_search = false;
 
         // Tab bar
+        let mut tab_clicked = false;
         egui::TopBottomPanel::top("tab_bar").show(&egui.egui_ctx, |ui| {
             let tab_bar = TabBar::new(self.app_state.tab_titles.clone(), self.app_state.active_tab);
             if let Some(clicked) = tab_bar.show(ui) {
                 if clicked < self.app_state.tab_titles.len() {
                     self.app_state.active_tab = clicked;
+                    tab_clicked = true;
                 } else {
                     spawn_new_tab = true;
                 }
@@ -412,8 +468,12 @@ impl MythtermApp {
 
         // Deferred actions
         if spawn_new_tab { let _ = self.spawn_pane(); }
+        if tab_clicked { self.sync_active_pane(); }
         if close_tab { self.send_input(b"exit\n".to_vec()); }
         if open_search { self.search = SearchOverlay::new(); self.app_state.search_open = true; }
+
+        // Cleanup dead panes (shell exited)
+        self.cleanup_dead_panes();
 
         if let Some(w) = &self.window { w.request_redraw(); }
     }
