@@ -191,6 +191,7 @@ impl LocalPane {
                             break;
                         }
                         Ok(n) => {
+                            eprintln!("[PTY-READ] pane {}: {} bytes", pane_id, n);
                             reader_terminal.lock().advance_bytes(&buf[..n]);
                         }
                         Err(e) => {
@@ -343,7 +344,7 @@ impl Pane for LocalPane {
         let visible = screen.physical_rows;
         let total_lines = scrollback + visible;
 
-        log::trace!("get_visible_lines: scrollback={}, visible={}, total={}", scrollback, visible, total_lines);
+        eprintln!("[LINES] scrollback={}, visible={}, total={}", scrollback, visible, total_lines);
 
         if total_lines == 0 {
             return Vec::new();
@@ -353,15 +354,15 @@ impl Pane for LocalPane {
         let start = if total_lines >= visible { total_lines - visible } else { 0 };
         let lines = screen.lines_in_phys_range(start..total_lines);
 
-        let result: Vec<String> = lines.iter().map(|line| {
+        let result: Vec<String> = lines.iter().enumerate().map(|(i, line)| {
             let s = line.as_str().into_owned();
             if !s.trim().is_empty() {
-                log::trace!("line: {:?}", s);
+                eprintln!("[LINES] row {}: {:?}", start + i, s);
             }
             s
         }).collect();
 
-        log::trace!("get_visible_lines returning {} lines", result.len());
+        eprintln!("[LINES] returning {} lines", result.len());
         result
     }
 
