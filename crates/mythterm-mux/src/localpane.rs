@@ -191,7 +191,6 @@ impl LocalPane {
                             break;
                         }
                         Ok(n) => {
-                            eprintln!("[PTY-READ] pane {}: {} bytes", pane_id, n);
                             reader_terminal.lock().advance_bytes(&buf[..n]);
                         }
                         Err(e) => {
@@ -357,14 +356,9 @@ impl Pane for LocalPane {
                     line.push(' ');
                 }
             }
-            let trimmed = line.trim_end().to_string();
-            if !trimmed.is_empty() {
-                eprintln!("[LINES] row {}: {:?}", row, trimmed);
-            }
             result.push(line);
         }
 
-        eprintln!("[LINES] returning {} lines", result.len());
         result
     }
 

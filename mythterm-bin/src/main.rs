@@ -322,27 +322,11 @@ impl MythtermApp {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let lines = pane.get_visible_lines();
                     let cursor = pane.get_cursor_position();
-                    let size = pane.get_size();
-
-                    // Debug output to stderr (always visible)
-                    eprintln!("[DEBUG] Pane {}: {} lines, cursor ({},{}), size {}x{}",
-                        pane_id, lines.len(), cursor.0, cursor.1, size.cols, size.rows);
-
-                    log::debug!("Pane {}: {} lines, cursor ({},{}), size {}x{}",
-                        pane_id, lines.len(), cursor.0, cursor.1, size.cols, size.rows);
-
-                    // Show some debug info in the UI
-                    ui.label(format!("Pane {} | {} lines | {}x{} | cursor ({},{})",
-                        pane_id, lines.len(), size.cols, size.rows, cursor.0, cursor.1));
 
                     let mut widget = TerminalWidget::with_content(lines, self.metrics.cell_width, self.metrics.cell_height);
                     widget = widget.cursor(cursor.0, cursor.1);
                     ui.add(widget);
-                } else {
-                    ui.label("No pane found");
                 }
-            } else {
-                ui.label("No active pane");
             }
         });
 
