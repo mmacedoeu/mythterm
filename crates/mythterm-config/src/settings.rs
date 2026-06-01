@@ -48,7 +48,7 @@ impl Default for Settings {
             debug_key_events: false,
             debug_escape_sequences: false,
             bidi_enabled: false,
-            background_opacity: 0.85,
+            background_opacity: 0.0,
         }
     }
 }
