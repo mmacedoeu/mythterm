@@ -24,6 +24,7 @@ myth_app.workspace = true
 
 # egui + winit
 egui.workspace = true
+egui-wgpu.workspace = true
 egui-winit.workspace = true
 winit.workspace = true
 wgpu.workspace = true
