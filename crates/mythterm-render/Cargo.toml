@@ -7,16 +7,26 @@ license.workspace = true
 description = "Myth engine integration: glyph atlas, text pipeline, terminal rendering"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
-parking_lot.workspace = true
-bytemuck.workspace = true
+# WezTerm types
+mythterm-core.workspace = true
+mythterm-font.workspace = true
+mythterm-config.workspace = true
+
+# GPU
 wgpu.workspace = true
+bytemuck.workspace = true
 glam.workspace = true
+guillotiere.workspace = true
+
+# Myth engine
 myth_core.workspace = true
 myth_render.workspace = true
 myth_scene.workspace = true
 myth_app.workspace = true
-mythterm-core.workspace = true
-mythterm-font.workspace = true
-mythterm-config.workspace = true
+
+# Utilities
+anyhow.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
