@@ -148,7 +148,7 @@ impl ClipboardHandler {
     ///
     /// Returns the clipboard contents for queries, or sets the clipboard
     /// for updates.
-    pub fn handle_osc52(&self, selection: &str, data: Option<&str>) -> Option<String> {
+    pub fn handle_osc52(&self, _selection: &str, data: Option<&str>) -> Option<String> {
         match data {
             Some(text) => {
                 // Set clipboard

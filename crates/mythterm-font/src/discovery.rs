@@ -9,9 +9,12 @@ use std::path::PathBuf;
 /// Font discovery system.
 ///
 /// Uses fontconfig on Linux to find fonts matching given criteria.
+/// Supports fallback font chains for Nerd Fonts, emoji, CJK, etc.
 pub struct FontDiscovery {
     #[cfg(unix)]
     fc: Option<fontconfig::Fontconfig>,
+    /// Fallback font families to try when a glyph is missing.
+    fallback_families: Vec<String>,
 }
 
 impl std::fmt::Debug for FontDiscovery {
@@ -26,7 +29,25 @@ impl FontDiscovery {
         Self {
             #[cfg(unix)]
             fc: fontconfig::Fontconfig::new(),
+            fallback_families: vec![
+                "Nerd Font Symbols".into(),
+                "NerdFont".into(),
+                "Symbols Nerd Font".into(),
+                "Noto Color Emoji".into(),
+                "Noto Sans Symbols".into(),
+                "Noto Sans Symbols 2".into(),
+            ],
         }
+    }
+
+    /// Add a fallback font family.
+    pub fn add_fallback(&mut self, family: String) {
+        self.fallback_families.push(family);
+    }
+
+    /// Get the fallback font families.
+    pub fn fallback_families(&self) -> &[String] {
+        &self.fallback_families
     }
 
     /// Find a font by family name.
@@ -60,6 +81,19 @@ impl FontDiscovery {
 
         // Fallback: try common font directories
         self.find_font_fallback(family, bold, italic)
+    }
+
+    /// Find all available fallback fonts.
+    ///
+    /// Returns a list of successfully loaded fallback fonts for symbol/emoji coverage.
+    pub fn find_fallback_fonts(&self) -> Vec<FontData> {
+        let mut fonts = Vec::new();
+        for family in &self.fallback_families {
+            if let Ok(font) = self.find_font(family, false, false) {
+                fonts.push(font);
+            }
+        }
+        fonts
     }
 
     /// Fallback font search in common directories.

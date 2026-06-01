@@ -2,7 +2,7 @@
 //!
 //! Provides overlay UI elements that appear on top of the terminal content.
 
-use egui::{Color32, Ui, Vec2};
+use egui::{Color32, Vec2};
 
 /// Search overlay for finding text in the terminal.
 pub struct SearchOverlay {
