@@ -146,68 +146,85 @@ impl Widget for TerminalWidget {
             let bg = Color32::from_rgba_premultiplied(r, g, b, a);
             painter.rect_filled(rect, 0.0, bg);
 
-            // Calculate character width from font height (typical monospace ratio)
+            // Draw text lines and cursor
             let font_id = FontId::monospace(self.cell_height * 0.8);
-            let char_width = self.cell_height * 0.6; // Typical monospace: width ≈ 0.6 * height
 
-            // Draw text lines
             for (row, line) in self.lines.iter().enumerate() {
                 let y = rect.min.y + row as f32 * self.cell_height;
 
-                painter.text(
-                    egui::pos2(rect.min.x, y),
-                    egui::Align2::LEFT_TOP,
-                    line,
+                // Layout the full line to get accurate glyph positions
+                let galley = painter.layout_no_wrap(
+                    line.clone(),
                     font_id.clone(),
                     self.fg_color,
                 );
-            }
+                painter.galley(egui::pos2(rect.min.x, y), galley.clone(), self.fg_color);
 
-            // Draw cursor with blink
-            if let Some((col, row)) = self.cursor {
-                if row < self.rows && col < self.cols {
-                    // Calculate blink state using egui time
-                    let show_cursor = if self.cursor_blink_ms > 0 {
-                        let time_secs = ui.input(|i| i.time);
-                        let blink_secs = self.cursor_blink_ms as f64 / 1000.0;
-                        let phase = (time_secs / blink_secs) as u64;
-                        phase % 2 == 0
-                    } else {
-                        true
-                    };
+                // Draw cursor on this row
+                if let Some((col, row_idx)) = self.cursor {
+                    if row_idx == row && row < self.rows {
+                        let show_cursor = if self.cursor_blink_ms > 0 {
+                            let time_secs = ui.input(|i| i.time);
+                            let blink_secs = self.cursor_blink_ms as f64 / 1000.0;
+                            let phase = (time_secs / blink_secs) as u64;
+                            phase % 2 == 0
+                        } else {
+                            true
+                        };
 
-                    if show_cursor {
-                        let cursor_x = rect.min.x + col as f32 * char_width;
-                        let cursor_y = rect.min.y + row as f32 * self.cell_height;
+                        if show_cursor {
+                            // Measure text width up to cursor column
+                            let text_before: String = line.chars().take(col).collect();
+                            let width_before = painter.layout_no_wrap(
+                                text_before,
+                                font_id.clone(),
+                                Color32::TRANSPARENT,
+                            ).size().x;
 
-                        match self.cursor_style {
-                            CursorStyle::Block => {
-                                let cursor_rect = Rect::from_min_size(
-                                    egui::pos2(cursor_x, cursor_y),
-                                    Vec2::new(self.cell_width, self.cell_height),
-                                );
-                                painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
-                            }
-                            CursorStyle::Beam => {
-                                let cursor_rect = Rect::from_min_size(
-                                    egui::pos2(cursor_x, cursor_y),
-                                    Vec2::new(2.0, self.cell_height),
-                                );
-                                painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
-                            }
-                            CursorStyle::Underline => {
-                                let cursor_rect = Rect::from_min_size(
-                                    egui::pos2(cursor_x, cursor_y + self.cell_height - 2.0),
-                                    Vec2::new(self.cell_width, 2.0),
-                                );
-                                painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
+                            let cursor_x = rect.min.x + width_before;
+                            let cursor_y = rect.min.y + row as f32 * self.cell_height;
+
+                            match self.cursor_style {
+                                CursorStyle::Block => {
+                                    // Measure one char width for block cursor
+                                    let char_w = if col < line.len() {
+                                        let c: String = line.chars().nth(col).unwrap_or(' ').to_string();
+                                        painter.layout_no_wrap(c, font_id.clone(), Color32::TRANSPARENT).size().x
+                                    } else {
+                                        self.cell_height * 0.6
+                                    };
+                                    let cursor_rect = Rect::from_min_size(
+                                        egui::pos2(cursor_x, cursor_y),
+                                        Vec2::new(char_w, self.cell_height),
+                                    );
+                                    painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
+                                }
+                                CursorStyle::Beam => {
+                                    let cursor_rect = Rect::from_min_size(
+                                        egui::pos2(cursor_x, cursor_y),
+                                        Vec2::new(2.0, self.cell_height),
+                                    );
+                                    painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
+                                }
+                                CursorStyle::Underline => {
+                                    let char_w = if col < line.len() {
+                                        let c: String = line.chars().nth(col).unwrap_or(' ').to_string();
+                                        painter.layout_no_wrap(c, font_id.clone(), Color32::TRANSPARENT).size().x
+                                    } else {
+                                        self.cell_height * 0.6
+                                    };
+                                    let cursor_rect = Rect::from_min_size(
+                                        egui::pos2(cursor_x, cursor_y + self.cell_height - 2.0),
+                                        Vec2::new(char_w, 2.0),
+                                    );
+                                    painter.rect_filled(cursor_rect, 0.0, self.cursor_color);
+                                }
                             }
                         }
-                    }
 
-                    // Request repaint for blink animation
-                    if self.cursor_blink_ms > 0 {
-                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(self.cursor_blink_ms));
+                        if self.cursor_blink_ms > 0 {
+                            ui.ctx().request_repaint_after(std::time::Duration::from_millis(self.cursor_blink_ms));
+                        }
                     }
                 }
             }
