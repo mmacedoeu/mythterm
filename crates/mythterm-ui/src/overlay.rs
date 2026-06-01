@@ -28,14 +28,14 @@ impl SearchOverlay {
     }
 
     /// Show the search overlay.
-    pub fn show(&mut self, ui: &mut Ui) -> SearchAction {
+    pub fn show(&mut self, ctx: &egui::Context) -> SearchAction {
         let mut action = SearchAction::None;
 
         egui::Window::new("Search")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_TOP, [0.0, 40.0])
-            .show(ui.ctx(), |ui| {
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let response = ui.text_edit_singleline(&mut self.query);
                     if response.changed() {
@@ -132,14 +132,14 @@ impl CommandPalette {
     }
 
     /// Show the command palette and return the selected command, if any.
-    pub fn show(&mut self, ui: &mut Ui) -> Option<String> {
+    pub fn show(&mut self, ctx: &egui::Context) -> Option<String> {
         let mut selected = None;
 
         egui::Window::new("Command Palette")
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
-            .show(ui.ctx(), |ui| {
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(">");
                     ui.text_edit_singleline(&mut self.query);

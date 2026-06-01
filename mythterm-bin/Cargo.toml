@@ -11,14 +11,30 @@ name = "mythterm"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
-log.workspace = true
-env_logger.workspace = true
-clap = { version = "4.0", features = ["derive"] }
-myth_app.workspace = true
+# mythterm crates
 mythterm-core.workspace = true
 mythterm-config.workspace = true
 mythterm-font.workspace = true
 mythterm-mux.workspace = true
 mythterm-render.workspace = true
 mythterm-ui.workspace = true
+
+# Myth engine
+myth_app.workspace = true
+
+# egui + winit
+egui.workspace = true
+egui-winit.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Utilities
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+pollster.workspace = true
+
+[dev-dependencies]

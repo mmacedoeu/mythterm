@@ -2350,6 +2350,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "egui",
+ "egui-winit",
  "env_logger",
  "log",
  "myth_app",
@@ -2359,6 +2361,9 @@ dependencies = [
  "mythterm-mux",
  "mythterm-render",
  "mythterm-ui",
+ "pollster",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
