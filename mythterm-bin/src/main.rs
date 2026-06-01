@@ -56,6 +56,7 @@ struct MythtermApp {
     search: SearchOverlay,
     command_palette: CommandPalette,
     bg_opacity: f32,
+    should_quit: bool,
 }
 
 impl MythtermApp {
@@ -86,6 +87,7 @@ impl MythtermApp {
             search: SearchOverlay::new(),
             command_palette: CommandPalette::new(),
             bg_opacity,
+            should_quit: false,
         })
     }
 
@@ -150,10 +152,6 @@ impl MythtermApp {
                 let panes = self.mux.iter_panes();
                 self.active_pane = panes.first().map(|p| p.pane_id());
                 self.app_state.active_tab = 0;
-            }
-            // If no panes left, spawn a new one
-            if self.active_pane.is_none() {
-                let _ = self.spawn_pane();
             }
         }
 
@@ -247,6 +245,10 @@ impl ApplicationHandler for MythtermApp {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.should_quit {
+            event_loop.exit();
+            return;
+        }
         if let (Some(egui), Some(window)) = (&mut self.egui, &self.window) {
             let _ = egui.state.on_window_event(window, &event);
         }
@@ -481,6 +483,15 @@ impl MythtermApp {
 
         // Cleanup dead panes (shell exited)
         self.cleanup_dead_panes();
+
+        // Quit if no panes left
+        if self.mux.iter_panes().is_empty() {
+            self.should_quit = true;
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+            return;
+        }
 
         if let Some(w) = &self.window { w.request_redraw(); }
     }
