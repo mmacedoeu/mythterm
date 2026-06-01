@@ -268,7 +268,7 @@ impl ApplicationHandler for MythtermApp {
                 }
                 // Calculate new terminal size in cells
                 // Account for tab bar height (32px) and scale factor
-                let scale = self.window.as_ref().map(|w| w.scale_factor()).unwrap_or(1.0);
+                let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
                 let tab_bar_height = 32.0 * scale;
                 let avail_width = new_size.width as f32;
                 let avail_height = (new_size.height as f32 - tab_bar_height).max(1.0);
