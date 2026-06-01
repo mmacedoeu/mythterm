@@ -26,6 +26,8 @@ pub struct TerminalWidget {
     fg_color: Color32,
     /// Cursor position (col, row).
     cursor: Option<(usize, usize)>,
+    /// Background opacity (0.0 - 1.0).
+    bg_opacity: f32,
 }
 
 impl TerminalWidget {
@@ -40,6 +42,7 @@ impl TerminalWidget {
             bg_color: Color32::from_rgb(30, 30, 30),
             fg_color: Color32::from_rgb(192, 192, 192),
             cursor: Some((0, 0)),
+            bg_opacity: 1.0,
         }
     }
 
@@ -56,6 +59,7 @@ impl TerminalWidget {
             bg_color: Color32::from_rgb(30, 30, 30),
             fg_color: Color32::from_rgb(192, 192, 192),
             cursor: Some((0, 0)),
+            bg_opacity: 1.0,
         }
     }
 
@@ -77,6 +81,12 @@ impl TerminalWidget {
         self
     }
 
+    /// Set background opacity (0.0 = transparent, 1.0 = opaque).
+    pub fn bg_opacity(mut self, opacity: f32) -> Self {
+        self.bg_opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
     /// Update the content from terminal lines.
     pub fn set_lines(&mut self, lines: Vec<String>) {
         self.lines = lines;
@@ -95,8 +105,11 @@ impl Widget for TerminalWidget {
         if ui.is_rect_visible(rect) {
             let painter = ui.painter();
 
-            // Draw background
-            painter.rect_filled(rect, 0.0, self.bg_color);
+            // Draw background with opacity
+            let [r, g, b, _] = self.bg_color.to_array();
+            let a = (self.bg_opacity * 255.0) as u8;
+            let bg = Color32::from_rgba_premultiplied(r, g, b, a);
+            painter.rect_filled(rect, 0.0, bg);
 
             // Draw text lines
             let font_id = FontId::monospace(self.cell_height * 0.8);

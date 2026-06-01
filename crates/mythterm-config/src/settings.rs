@@ -29,6 +29,8 @@ pub struct Settings {
     pub debug_escape_sequences: bool,
     /// Enable bidirectional text support.
     pub bidi_enabled: bool,
+    /// Background opacity (0.0 = fully transparent, 1.0 = fully opaque).
+    pub background_opacity: f32,
 }
 
 impl Default for Settings {
@@ -46,6 +48,7 @@ impl Default for Settings {
             debug_key_events: false,
             debug_escape_sequences: false,
             bidi_enabled: false,
+            background_opacity: 0.85,
         }
     }
 }

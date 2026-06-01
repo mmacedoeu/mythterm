@@ -55,6 +55,7 @@ struct MythtermApp {
     metrics: FontMetrics,
     search: SearchOverlay,
     command_palette: CommandPalette,
+    bg_opacity: f32,
 }
 
 impl MythtermApp {
@@ -65,6 +66,8 @@ impl MythtermApp {
             ensure_config_exists()?;
             load_settings()?
         };
+
+        let bg_opacity = settings.background_opacity;
 
         Ok(Self {
             window: None,
@@ -82,6 +85,7 @@ impl MythtermApp {
             metrics: FontMetrics::default(),
             search: SearchOverlay::new(),
             command_palette: CommandPalette::new(),
+            bg_opacity,
         })
     }
 
@@ -383,7 +387,7 @@ impl MythtermApp {
                     let cursor = pane.get_cursor_position();
 
                     let mut widget = TerminalWidget::with_content(lines, self.metrics.cell_width, self.metrics.cell_height);
-                    widget = widget.cursor(cursor.0, cursor.1);
+                    widget = widget.cursor(cursor.0, cursor.1).bg_opacity(self.bg_opacity);
                     ui.add(widget);
                 }
             }
@@ -446,7 +450,7 @@ impl MythtermApp {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.118, g: 0.118, b: 0.118, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.118, g: 0.118, b: 0.118, a: self.bg_opacity as f64 }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
