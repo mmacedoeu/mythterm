@@ -3,7 +3,7 @@
 //! Applies bloom, LCD subpixel simulation, and filmic tonemapping
 //! to the terminal content rendered into the HDR render target.
 
-use wgpu::{Device, Queue, RenderPipeline, BindGroupLayout};
+use wgpu::{Device, RenderPipeline, BindGroupLayout};
 
 /// Post-processing renderer.
 pub struct PostProcess {

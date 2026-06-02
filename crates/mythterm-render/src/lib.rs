@@ -4,11 +4,13 @@
 //! for cinematic terminal rendering.
 
 pub mod atlas;
+pub mod bloom;
 pub mod pipeline;
 pub mod postprocess;
 pub mod render_target;
 pub mod renderer;
 
+pub use bloom::BloomRenderer;
 pub use postprocess::{PostProcess, PostPass};
 pub use render_target::RenderTarget;
 pub use renderer::TerminalRenderer;
