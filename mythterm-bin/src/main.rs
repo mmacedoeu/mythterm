@@ -208,7 +208,7 @@ impl ApplicationHandler for MythtermApp {
 
         let surface = instance.create_surface(window.clone()).expect("Failed to create surface");
 
-        let (device, queue, surface_config, format) = pollster::block_on(async {
+        let (device, queue, surface_config, _format) = pollster::block_on(async {
             let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),

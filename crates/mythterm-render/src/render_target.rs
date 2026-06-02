@@ -3,7 +3,7 @@
 //! Renders egui terminal content into an HDR texture that can be
 //! used as input for post-processing effects (bloom, tonemap, etc.)
 
-use wgpu::{Device, Extent3d, Queue, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
+use wgpu::{Device, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
 /// Offscreen render target for terminal content.
 pub struct RenderTarget {
