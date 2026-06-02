@@ -300,7 +300,6 @@ impl ApplicationHandler for MythtermApp {
 
         let viewport_id = egui_ctx.viewport_id();
         let egui_state = egui_winit::State::new(egui_ctx.clone(), viewport_id, &window, None, None, None);
-        let egui_renderer = egui_wgpu::Renderer::new(&device, format, egui_wgpu::RendererOptions::default());
 
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
@@ -317,6 +316,9 @@ impl ApplicationHandler for MythtermApp {
         let surface_format = surface_config.format;
         self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
         self.post_process = Some(PostProcess::new(&device, surface_format));
+
+        // Create egui renderer for the render target format (HDR), not swapchain
+        let egui_renderer = egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba16Float, egui_wgpu::RendererOptions::default());
 
         self.device = Some(device);
         self.queue = Some(queue);
