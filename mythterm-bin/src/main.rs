@@ -16,6 +16,7 @@ use mythterm_mux::domain::{Domain, LocalDomain};
 use mythterm_mux::pane::{Pane, PaneId};
 use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
+use mythterm_render::{PostProcess, PostPass, RenderTarget};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -45,6 +46,8 @@ struct MythtermApp {
     surface: Option<wgpu::Surface<'static>>,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     egui: Option<EguiRenderState>,
+    render_target: Option<RenderTarget>,
+    post_process: Option<PostProcess>,
     mux: Arc<Mux>,
     local_domain: Option<LocalDomain>,
     active_pane: Option<PaneId>,
@@ -76,6 +79,8 @@ impl MythtermApp {
             surface: None,
             surface_config: None,
             egui: None,
+            render_target: None,
+            post_process: None,
             mux: Arc::new(Mux::new()),
             local_domain: None,
             active_pane: None,
@@ -305,11 +310,21 @@ impl ApplicationHandler for MythtermApp {
         let local_domain = LocalDomain::new(0, self.config.clone(), self.config.clone());
 
         self.window = Some(window);
+
+        // Create render target and post-processing pipeline before moving device
+        let rt_width = surface_config.width.max(1920);
+        let rt_height = surface_config.height.max(1080);
+        let surface_format = surface_config.format;
+        self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
+        self.post_process = Some(PostProcess::new(&device, surface_format));
+
         self.device = Some(device);
         self.queue = Some(queue);
         self.surface = Some(surface);
+
         self.surface_config = Some(surface_config);
         self.egui = Some(EguiRenderState { egui_ctx, state: egui_state, renderer: egui_renderer, screen_descriptor });
+
         self.local_domain = Some(local_domain);
 
         if let Err(e) = self.spawn_pane() {
@@ -548,12 +563,12 @@ impl MythtermApp {
         };
         let view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Render egui
-        {
+        // Render egui into offscreen render target (HDR texture)
+        if let Some(rt) = &self.render_target {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui"),
+                label: Some("egui -> render target"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &rt.view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -567,6 +582,28 @@ impl MythtermApp {
                 multiview_mask: None,
             }).forget_lifetime();
             egui.renderer.render(&mut rpass, &paint_jobs, &egui.screen_descriptor);
+        }
+
+        // Apply post-processing passes
+        if let (Some(rt), Some(pp)) = (&self.render_target, &self.post_process) {
+            // Create bind group for render target texture
+            let input_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("PostProcess Input"),
+                layout: pp.bind_group_layout(),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&rt.sample_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&rt.sampler),
+                    },
+                ],
+            });
+
+            // Apply tonemap pass (renders to swapchain)
+            pp.render(&mut encoder, &input_bind_group, &view, PostPass::Tonemap);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
