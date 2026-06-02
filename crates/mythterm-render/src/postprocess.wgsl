@@ -17,7 +17,6 @@ struct VertexOutput {
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
-    // Generate a full-screen triangle
     let x = f32(i32(vertex_index) / 2) * 4.0 - 1.0;
     let y = f32(i32(vertex_index) % 2) * 4.0 - 1.0;
     out.position = vec4<f32>(x, y, 0.0, 1.0);
@@ -38,18 +37,49 @@ fn aces(x: vec3<f32>) -> vec3<f32> {
 }
 
 // ============================================================
-// Bloom Pass: Extract bright pixels
+// Bloom Pass 1: Extract bright pixels (threshold)
 // ============================================================
 @fragment
-fn bloom_fs(in: VertexOutput) -> @location(0) vec4<f32> {
+fn bloom_threshold_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(input_texture, input_sampler, in.uv);
     let brightness = max(color.r, max(color.g, color.b));
-    let threshold = 1.0; // HDR threshold
+    let threshold = 0.8;
 
     if brightness > threshold {
-        return color;
+        // Extract bright pixels with soft knee
+        let knee = 0.2;
+        let soft = brightness - threshold + knee;
+        let contribution = clamp(soft * soft / (4.0 * knee + 0.0001), 0.0, 1.0);
+        return color * contribution;
     }
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+
+// ============================================================
+// Bloom Pass 2: Gaussian blur (downsample + blur)
+// ============================================================
+@fragment
+fn bloom_blur_fs(in: VertexOutput) -> @location(0) vec4<f32> {
+    let size = vec2<f32>(textureDimensions(input_texture));
+    let texel = 1.0 / size;
+
+    // 13-tap Gaussian blur (optimized for large radius)
+    var color = vec4<f32>(0.0);
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-6.0, 0.0) * texel) * 0.002;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-5.0, 0.0) * texel) * 0.008;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-4.0, 0.0) * texel) * 0.024;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-3.0, 0.0) * texel) * 0.056;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-2.0, 0.0) * texel) * 0.104;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-1.0, 0.0) * texel) * 0.152;
+    color += textureSample(input_texture, input_sampler, in.uv) * 0.172;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(1.0, 0.0) * texel) * 0.152;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(2.0, 0.0) * texel) * 0.104;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(3.0, 0.0) * texel) * 0.056;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(4.0, 0.0) * texel) * 0.024;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(5.0, 0.0) * texel) * 0.008;
+    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(6.0, 0.0) * texel) * 0.002;
+
+    return color;
 }
 
 // ============================================================
@@ -59,7 +89,6 @@ fn bloom_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(input_texture, input_sampler, in.uv);
 
-    // Get screen-space pixel position
     let screen_size = vec2<f32>(textureDimensions(input_texture));
     let pixel_x = in.uv.x * screen_size.x;
 
@@ -70,15 +99,12 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Subtle channel bias based on subpixel position
     if stripe < 0.333 {
-        // Red subpixel
         result.g *= 0.97;
         result.b *= 0.94;
     } else if stripe < 0.666 {
-        // Green subpixel
         result.r *= 0.97;
         result.b *= 0.97;
     } else {
-        // Blue subpixel
         result.r *= 0.94;
         result.g *= 0.97;
     }
@@ -92,7 +118,7 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// Tonemap Pass: Filmic ACES tonemapping
+// Tonemap Pass: Filmic ACES tonemapping + vignette
 // ============================================================
 @fragment
 fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -104,7 +130,7 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     // Slight vignette effect
     let center = vec2<f32>(0.5, 0.5);
     let dist = distance(in.uv, center);
-    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.3;
+    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.25;
 
     return vec4<f32>(mapped * vignette, color.a);
 }

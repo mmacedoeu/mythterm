@@ -3,12 +3,14 @@
 //! Applies bloom, LCD subpixel simulation, and filmic tonemapping
 //! to the terminal content rendered into the HDR render target.
 
-use wgpu::{Device, RenderPipeline, BindGroupLayout};
+use wgpu::{Device, Queue, RenderPipeline, BindGroupLayout};
 
 /// Post-processing renderer.
 pub struct PostProcess {
-    /// Bloom pipeline.
-    bloom_pipeline: RenderPipeline,
+    /// Bloom threshold extraction pipeline.
+    bloom_threshold_pipeline: RenderPipeline,
+    /// Bloom blur pipeline.
+    bloom_blur_pipeline: RenderPipeline,
     /// LCD subpixel pipeline.
     lcd_pipeline: RenderPipeline,
     /// Tonemap pipeline.
@@ -55,23 +57,23 @@ impl PostProcess {
             source: wgpu::ShaderSource::Wgsl(include_str!("postprocess.wgsl").into()),
         });
 
-        // Create bloom pipeline
-        let bloom_pipeline = Self::create_pipeline(
-            device, &pipeline_layout, &shader, format, "bloom_fs",
+        // Create pipelines for each pass
+        let bloom_threshold_pipeline = Self::create_pipeline(
+            device, &pipeline_layout, &shader, format, "bloom_threshold_fs",
         );
-
-        // Create LCD pipeline
+        let bloom_blur_pipeline = Self::create_pipeline(
+            device, &pipeline_layout, &shader, format, "bloom_blur_fs",
+        );
         let lcd_pipeline = Self::create_pipeline(
             device, &pipeline_layout, &shader, format, "lcd_fs",
         );
-
-        // Create tonemap pipeline
         let tonemap_pipeline = Self::create_pipeline(
             device, &pipeline_layout, &shader, format, "tonemap_fs",
         );
 
         Self {
-            bloom_pipeline,
+            bloom_threshold_pipeline,
+            bloom_blur_pipeline,
             lcd_pipeline,
             tonemap_pipeline,
             bind_group_layout,
@@ -120,7 +122,7 @@ impl PostProcess {
         &self.bind_group_layout
     }
 
-    /// Render post-processing passes.
+    /// Render a specific post-processing pass.
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -129,7 +131,8 @@ impl PostProcess {
         pass: PostPass,
     ) {
         let pipeline = match pass {
-            PostPass::Bloom => &self.bloom_pipeline,
+            PostPass::BloomThreshold => &self.bloom_threshold_pipeline,
+            PostPass::BloomBlur => &self.bloom_blur_pipeline,
             PostPass::Lcd => &self.lcd_pipeline,
             PostPass::Tonemap => &self.tonemap_pipeline,
         };
@@ -160,8 +163,10 @@ impl PostProcess {
 /// Post-processing pass type.
 #[derive(Debug, Clone, Copy)]
 pub enum PostPass {
-    /// Bloom effect.
-    Bloom,
+    /// Bloom: extract bright pixels.
+    BloomThreshold,
+    /// Bloom: Gaussian blur.
+    BloomBlur,
     /// LCD subpixel simulation.
     Lcd,
     /// Filmic tonemapping.
