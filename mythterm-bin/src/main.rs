@@ -481,8 +481,9 @@ impl MythtermApp {
             }
         });
 
-        // Terminal content
-        egui::CentralPanel::default().show(&egui.egui_ctx, |ui| {
+        // Terminal content - use transparent frame to avoid gray background
+        let panel = egui::CentralPanel::default();
+        panel.frame(egui::Frame::NONE).show(&egui.egui_ctx, |ui| {
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let colored_lines = pane.get_colored_lines();
