@@ -301,24 +301,26 @@ impl ApplicationHandler for MythtermApp {
         let viewport_id = egui_ctx.viewport_id();
         let egui_state = egui_winit::State::new(egui_ctx.clone(), viewport_id, &window, None, None, None);
 
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: window.scale_factor() as f32,
-        };
-
         let local_domain = LocalDomain::new(0, self.config.clone(), self.config.clone());
 
+        let scale_factor = window.scale_factor();
         self.window = Some(window);
 
-        // Create render target and post-processing pipeline before moving device
-        let rt_width = surface_config.width.max(1920);
-        let rt_height = surface_config.height.max(1080);
+        // Create render target matching window size exactly
+        let rt_width = surface_config.width;
+        let rt_height = surface_config.height;
         let surface_format = surface_config.format;
         self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
         self.post_process = Some(PostProcess::new(&device, surface_format));
 
-        // Create egui renderer for the render target format (HDR), not swapchain
+        // Create egui renderer for the render target format (HDR)
         let egui_renderer = egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba16Float, egui_wgpu::RendererOptions::default());
+
+        // Screen descriptor matches render target size
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [rt_width, rt_height],
+            pixels_per_point: scale_factor as f32,
+        };
 
         self.device = Some(device);
         self.queue = Some(queue);
@@ -351,6 +353,10 @@ impl ApplicationHandler for MythtermApp {
                     config.width = new_size.width.max(1);
                     config.height = new_size.height.max(1);
                     surface.configure(device, config);
+                }
+                // Update render target to match new window size
+                if let (Some(device), Some(rt)) = (&self.device, &mut self.render_target) {
+                    rt.resize(device, new_size.width.max(1), new_size.height.max(1));
                 }
                 // Update egui screen descriptor
                 if let Some(egui) = &mut self.egui {
