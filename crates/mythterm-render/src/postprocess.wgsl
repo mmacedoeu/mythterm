@@ -149,10 +149,11 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// Tonemap Pass: Filmic ACES tonemapping + vignette + edge lighting
+// Tonemap Pass: Filmic ACES tonemapping + micro-contrast +
+// vignette + edge lighting
 // ============================================================
 //
-// All three effects are display-space (post-tonemap), so they live
+// All four effects are display-space (post-tonemap), so they live
 // in a single fragment shader to avoid an extra full-resolution
 // scene texture. The cost is a few extra ALU ops per fragment.
 
@@ -160,6 +161,9 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 var<uniform> u_tonemap: TonemapParams;
 
 struct TonemapParams {
+    /// 0..1: micro-contrast strength (S-curve amount applied to the
+    /// tonemapped color). 0 = no change, 1 = full smoothstep S-curve.
+    micro_contrast: f32,
     /// 0..1: vignette strength (corner darkening).
     vignette: f32,
     /// 0..1: edge-light intensity (backlight bleed halo).
@@ -167,12 +171,23 @@ struct TonemapParams {
     /// Width of the edge halo as a fraction of the screen edge.
     /// 0.05 = 5% from the edge inward, 0.0 disables.
     edge_width: f32,
-    /// 16-byte alignment pad.
-    _pad0: f32,
     /// Edge halo color (typically warm white). RGB used, A ignored.
     /// vec4 in uniform is 16 bytes, so the struct is 32 bytes total
     /// — matches the Rust `TonemapParams` with `[f32; 4]` for the color.
     edge_color: vec4<f32>,
+}
+
+/// Smoothstep-based S-curve for micro-contrast.
+///
+/// `x` is the input value (typically in [0,1] after ACES tonemap).
+/// `strength` is the blend amount: 0 = identity, 1 = full S-curve.
+///
+/// The S-curve is `3x² - 2x³`, which preserves black/white and adds
+/// contrast around the midtones (0.5). Cheap, looks natural, and
+/// doesn't introduce ringing or color shifts.
+fn micro_contrast(x: f32, strength: f32) -> f32 {
+    let s = x * x * (3.0 - 2.0 * x);
+    return mix(x, s, strength);
 }
 
 @fragment
@@ -181,6 +196,17 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Filmic ACES tonemapping
     let mapped = aces(color.rgb);
+
+    // Micro-contrast: subtle S-curve applied per channel after ACES.
+    // Per-channel keeps the implementation trivial; visually
+    // indistinguishable from a luminance-based S-curve at small
+    // strengths (<0.3) which is the operating range.
+    let mc = u_tonemap.micro_contrast;
+    let contrasted = vec3<f32>(
+        micro_contrast(mapped.r, mc),
+        micro_contrast(mapped.g, mc),
+        micro_contrast(mapped.b, mc),
+    );
 
     // Corner vignette
     let center = vec2<f32>(0.5, 0.5);
@@ -193,7 +219,7 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let edge = 1.0 - smoothstep(0.0, u_tonemap.edge_width, dist_from_edge);
     let edge_contrib = edge * u_tonemap.edge_intensity * u_tonemap.edge_color.rgb;
 
-    let lit = mapped * vignette + edge_contrib;
+    let lit = contrasted * vignette + edge_contrib;
 
     return vec4<f32>(lit, color.a);
 }

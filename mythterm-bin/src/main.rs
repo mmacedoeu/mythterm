@@ -330,10 +330,10 @@ impl ApplicationHandler for MythtermApp {
             });
             let ec = s.cinematic.edge_color;
             post.set_tonemap_params(&queue, TonemapParams {
+                micro_contrast: s.cinematic.micro_contrast,
                 vignette: s.cinematic.vignette,
                 edge_intensity: s.cinematic.edge_intensity,
                 edge_width: s.cinematic.edge_width,
-                _pad0: 0.0,
                 edge_color: [ec[0], ec[1], ec[2], 0.0],
             });
         }

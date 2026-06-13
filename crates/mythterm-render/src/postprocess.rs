@@ -58,6 +58,8 @@ impl Default for LcdParams {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TonemapParams {
+    /// 0..1: micro-contrast strength (S-curve amount).
+    pub micro_contrast: f32,
     /// 0..1: vignette strength (corner darkening).
     pub vignette: f32,
     /// 0..1: edge-light intensity (backlight bleed halo).
@@ -65,8 +67,6 @@ pub struct TonemapParams {
     /// Width of the edge halo as a fraction of the screen edge.
     /// 0.05 = 5% from the edge inward, 0.0 disables.
     pub edge_width: f32,
-    /// 16-byte alignment pad.
-    pub _pad0: f32,
     /// Edge halo color (typically warm white). RGB used.
     pub edge_color: [f32; 4],
 }
@@ -74,10 +74,10 @@ pub struct TonemapParams {
 impl Default for TonemapParams {
     fn default() -> Self {
         Self {
+            micro_contrast: 0.15,
             vignette: 0.25,
             edge_intensity: 0.15,
             edge_width: 0.04,
-            _pad0: 0.0,
             edge_color: [1.0, 0.85, 0.65, 0.0], // warm white
         }
     }

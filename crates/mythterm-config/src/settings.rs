@@ -26,6 +26,9 @@ pub struct CinematicSettings {
     /// Edge lighting color (RGB, 0..1 each).
     /// Default: warm white (1.0, 0.85, 0.65) — like an incandescent backlight.
     pub edge_color: [f32; 3],
+    /// Micro-contrast strength (S-curve applied to the tonemapped color).
+    /// 0.0 = off, 1.0 = full smoothstep S-curve. Default: 0.15 — subtle.
+    pub micro_contrast: f32,
 }
 
 impl Default for CinematicSettings {
@@ -38,6 +41,7 @@ impl Default for CinematicSettings {
             edge_intensity: 0.15,
             edge_width: 0.04,
             edge_color: [1.0, 0.85, 0.65],
+            micro_contrast: 0.15,
         }
     }
 }
