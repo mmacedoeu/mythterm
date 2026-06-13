@@ -1,6 +1,36 @@
 use serde::{Deserialize, Serialize};
 use wezterm_term::color::{ColorPalette, SrgbaTuple};
 
+/// Convert a single sRGB channel value (0..=255) to its linear
+/// counterpart (0..=1).
+///
+/// The render target is `Rgba16Float` (linear), but the config
+/// stores colors in sRGB (8-bit per channel). When the cinematic
+/// pipeline tonemaps HDR to an sRGB swapchain, the GPU re-encodes
+/// the linear value to sRGB — so the clear color must already be
+/// in linear space if we want it to display as the configured
+/// sRGB value.
+///
+/// This uses the standard sRGB EOTF (IEC 61966-2-1) which is what
+/// the GPU does on write to an sRGB-encoded texture.
+pub fn srgb_to_linear_channel(c: u8) -> f32 {
+    let s = c as f32 / 255.0;
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Convert an `[u8; 3]` sRGB color to `[f32; 3]` linear.
+pub fn srgb_to_linear_rgb(c: [u8; 3]) -> [f32; 3] {
+    [
+        srgb_to_linear_channel(c[0]),
+        srgb_to_linear_channel(c[1]),
+        srgb_to_linear_channel(c[2]),
+    ]
+}
+
 /// A terminal color scheme.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColorScheme {
@@ -62,5 +92,11 @@ impl ColorScheme {
             palette.colors.0[i] = rgb_to_srgba(*color, 0xff);
         }
         palette
+    }
+
+    /// Background color in linear-RGB float form, ready to be
+    /// written to an HDR render target as a clear color.
+    pub fn background_linear(&self) -> [f32; 3] {
+        srgb_to_linear_rgb(self.background)
     }
 }

@@ -1,14 +1,18 @@
 //! Procedural environment cubemap used by the glass reflection pass.
 //!
-//! Represents a simple indoor environment:
-//!   - +Y face: warm white ceiling
-//!   - -Y face: dark cool floor
-//!   - ±X, ±Z faces: dim neutral walls with a vertical gradient
+//! Designed as a soft uniform gradient (like a softbox studio light) so
+//! the reflection adds a subtle highlight without revealing a
+//! recognisable "3D room" pattern on the screen.
+//!
+//!   - +Y face: soft warm (slightly brighter — the implied "key light")
+//!   - -Y face: soft cool (slightly darker — the implied "floor bounce")
+//!   - ±X, ±Z faces: medium neutral with a very gentle vertical
+//!     gradient (only ~20% range, so no visible "wall vs ceiling" edge)
 //!
 //! The cubemap is generated once at init time and never modified. A
 //! real application would load a HDRi file (and convert to 6 faces),
-//! but a procedural cubemap is good enough for a subtle reflection
-//! that hints at a "room" surrounding the display.
+//! but a soft procedural cubemap is good enough for a subtle glass
+//! reflection.
 //!
 //! Sampling convention: the cubemap is in wgpu's standard layout
 //!   array layer 0 = +X
@@ -20,8 +24,10 @@
 //!
 //! The glass shader computes a reflection direction (the line of sight
 //! from the camera to the surface, extended behind) and samples the
-//! cubemap at that direction. The result is a "looking at the room"
-//! reflection that varies with screen position.
+//! cubemap at that direction. The result is a gentle gradient that
+//! varies with screen position, with the warm bias toward the top
+//! (where you'd expect a ceiling light) and cool bias toward the
+//! bottom (where you'd expect a desk surface).
 
 use wgpu::{
     Device, Extent3d, Origin3d, Queue, Sampler, TexelCopyBufferLayout, TexelCopyTextureInfo,
@@ -112,39 +118,53 @@ impl EnvironmentMap {
 
 /// Generate 6 procedural face images. Returns `[+X, -X, +Y, -Y, +Z, -Z]`
 /// in wgpu cubemap array-layer order.
+///
+/// All six faces share a single soft uniform gradient — a medium
+/// neutral with a gentle warm bias at the top of each face and a cool
+/// bias at the bottom, plus a very subtle horizontal shimmer. There
+/// is **no** face-specific "room" structure: no bright ceiling, no
+/// dark floor. This prevents the glass reflection from showing a
+/// recognisable "3D box" on the screen.
 fn generate_procedural_faces(size: u32) -> [Vec<u8>; 6] {
     let mut faces: [Vec<u8>; 6] = std::array::from_fn(|_| vec![0u8; (size * size * 4) as usize]);
 
-    // Ceiling: warm white.
-    let ceiling = [1.0_f32, 0.95, 0.85];
-    // Floor: dark cool.
-    let floor = [0.04, 0.05, 0.08];
-    // Walls: dim neutral with a vertical gradient (brighter near top).
-    let wall_base = [0.25, 0.27, 0.30];
-
     for y in 0..size {
         for x in 0..size {
-            // v=0 at the top of the face, v=1 at the bottom. For
-            // walls we use this for the vertical brightness gradient.
+            // v=0 at the top of the face, v=1 at the bottom.
             let v = y as f32 / size as f32;
-            let vertical_factor = (1.0 - v).powf(1.5);
-            let wall = [
-                wall_base[0] * (0.5 + 0.5 * vertical_factor),
-                wall_base[1] * (0.5 + 0.5 * vertical_factor),
-                wall_base[2] * (0.5 + 0.5 * vertical_factor),
-            ];
-            // Subtle horizontal variation so the walls aren't flat.
-            let u = x as f32 / size as f32;
-            let horiz = 0.92 + 0.08 * (u * std::f32::consts::PI * 2.0).sin();
-            let wall = [wall[0] * horiz, wall[1] * horiz, wall[2] * horiz];
+            // Gentle vertical brightness range (~20% top to bottom).
+            let v_factor = 1.0 - v * 0.2;
+            // Warm bias at the top, cool bias at the bottom.
+            let warmth = 1.0 - v;
 
-            // wgpu cubemap face order: +X, -X, +Y, -Y, +Z, -Z
-            let face_colors = [wall, wall, ceiling, floor, wall, wall];
-            for (face, color) in face_colors.iter().enumerate() {
+            // Base medium neutral.
+            let base_r = 0.50;
+            let base_g = 0.52;
+            let base_b = 0.55;
+            // Apply vertical brightness and warm/cool tint (small
+            // offsets so the total range stays in roughly [0.40, 0.65]).
+            let r = base_r * v_factor + 0.05 * warmth;
+            let g = base_g * v_factor;
+            let b = base_b * v_factor - 0.05 * warmth;
+
+            // Very subtle horizontal shimmer (±3%) so the gradient
+            // doesn't look like a perfectly flat ramp.
+            let u = x as f32 / size as f32;
+            let horiz = 0.97 + 0.03 * (u * std::f32::consts::PI * 2.0).sin();
+            let r = (r * horiz).clamp(0.0, 1.0);
+            let g = (g * horiz).clamp(0.0, 1.0);
+            let b = (b * horiz).clamp(0.0, 1.0);
+
+            // All six faces share the same color — no per-face "room"
+            // structure. The cubemap is a soft uniform gradient.
+            let r_byte = (r * 255.0) as u8;
+            let g_byte = (g * 255.0) as u8;
+            let b_byte = (b * 255.0) as u8;
+            for face in 0..6 {
                 let idx = ((y * size + x) * 4) as usize;
-                faces[face][idx] = (color[0] * 255.0) as u8;
-                faces[face][idx + 1] = (color[1] * 255.0) as u8;
-                faces[face][idx + 2] = (color[2] * 255.0) as u8;
+                faces[face][idx] = r_byte;
+                faces[face][idx + 1] = g_byte;
+                faces[face][idx + 2] = b_byte;
                 faces[face][idx + 3] = 255;
             }
         }

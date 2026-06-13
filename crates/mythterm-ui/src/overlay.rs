@@ -2,6 +2,7 @@
 //!
 //! Provides overlay UI elements that appear on top of the terminal content.
 
+use crate::color::srgb_to_display_color32;
 use egui::{Color32, Vec2};
 
 /// Search overlay for finding text in the terminal.
@@ -163,7 +164,7 @@ impl CommandPalette {
                     let is_selected = i == self.selected;
 
                     let bg_color = if is_selected {
-                        Color32::from_rgb(60, 60, 60)
+                        srgb_to_display_color32(Color32::from_rgb(60, 60, 60))
                     } else {
                         Color32::TRANSPARENT
                     };
@@ -180,7 +181,7 @@ impl CommandPalette {
                             egui::Align2::LEFT_CENTER,
                             &cmd.name,
                             egui::FontId::proportional(13.0),
-                            Color32::from_rgb(200, 200, 200),
+                            srgb_to_display_color32(Color32::from_rgb(200, 200, 200)),
                         );
 
                         if let Some(shortcut) = &cmd.shortcut {
@@ -189,7 +190,7 @@ impl CommandPalette {
                                 egui::Align2::RIGHT_CENTER,
                                 shortcut,
                                 egui::FontId::proportional(11.0),
-                                Color32::from_rgb(120, 120, 120),
+                                srgb_to_display_color32(Color32::from_rgb(120, 120, 120)),
                             );
                         }
                     }

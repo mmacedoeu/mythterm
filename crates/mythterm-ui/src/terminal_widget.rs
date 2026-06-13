@@ -1,5 +1,6 @@
 //! Terminal widget: egui widget that renders terminal content.
 
+use crate::color::srgb_to_display_color32;
 use egui::{Color32, FontId, Rect, Response, Sense, Ui, Vec2, Widget};
 
 /// Cursor style.
@@ -56,13 +57,13 @@ impl TerminalWidget {
             rows,
             cell_width,
             cell_height,
-            bg_color: Color32::from_rgb(30, 30, 30),
-            fg_color: Color32::from_rgb(192, 192, 192),
+            bg_color: srgb_to_display_color32(Color32::from_rgb(30, 30, 30)),
+            fg_color: srgb_to_display_color32(Color32::from_rgb(192, 192, 192)),
             cursor: Some((0, 0)),
             cursor_style: CursorStyle::Block,
             bg_opacity: 1.0,
             cursor_blink_ms: 500,
-            cursor_color: Color32::from_rgb(200, 200, 200),
+            cursor_color: srgb_to_display_color32(Color32::from_rgb(200, 200, 200)),
         }
     }
 
@@ -78,13 +79,13 @@ impl TerminalWidget {
             rows,
             cell_width,
             cell_height,
-            bg_color: Color32::from_rgb(30, 30, 30),
-            fg_color: Color32::from_rgb(192, 192, 192),
+            bg_color: srgb_to_display_color32(Color32::from_rgb(30, 30, 30)),
+            fg_color: srgb_to_display_color32(Color32::from_rgb(192, 192, 192)),
             cursor: Some((0, 0)),
             cursor_style: CursorStyle::Block,
             bg_opacity: 1.0,
             cursor_blink_ms: 500,
-            cursor_color: Color32::from_rgb(200, 200, 200),
+            cursor_color: srgb_to_display_color32(Color32::from_rgb(200, 200, 200)),
         }
     }
 
@@ -105,13 +106,13 @@ impl TerminalWidget {
             rows,
             cell_width,
             cell_height,
-            bg_color: Color32::from_rgb(30, 30, 30),
-            fg_color: Color32::from_rgb(192, 192, 192),
+            bg_color: srgb_to_display_color32(Color32::from_rgb(30, 30, 30)),
+            fg_color: srgb_to_display_color32(Color32::from_rgb(192, 192, 192)),
             cursor: Some((0, 0)),
             cursor_style: CursorStyle::Block,
             bg_opacity: 1.0,
             cursor_blink_ms: 500,
-            cursor_color: Color32::from_rgb(200, 200, 200),
+            cursor_color: srgb_to_display_color32(Color32::from_rgb(200, 200, 200)),
         }
     }
 
@@ -164,7 +165,23 @@ impl TerminalWidget {
 }
 
 impl Widget for TerminalWidget {
-    fn ui(self, ui: &mut Ui) -> Response {
+    fn ui(mut self, ui: &mut Ui) -> Response {
+        // Fill the available area (rounded down to whole cells) so
+        // the background covers the whole central panel, not just
+        // however many rows/cols the current shell content happens
+        // to have. Without this, a bare prompt would leave a sea of
+        // transparency — and with `with_transparent(true)`, that
+        // transparency shows the desktop, not our dark background.
+        let avail = ui.available_size();
+        let fill_rows = (avail.y / self.cell_height).floor() as usize;
+        let fill_cols = (avail.x / self.cell_width).floor() as usize;
+        if self.rows < fill_rows {
+            self.rows = fill_rows;
+        }
+        if self.cols < fill_cols {
+            self.cols = fill_cols;
+        }
+
         let desired_size = Vec2::new(
             self.cols as f32 * self.cell_width,
             self.rows as f32 * self.cell_height,
@@ -207,12 +224,16 @@ impl Widget for TerminalWidget {
                                 );
                                 let [r, g, b] = bg_rgb;
                                 let a = (self.bg_opacity * 255.0) as u8;
-                                painter.rect_filled(bg_rect, 0.0, Color32::from_rgba_premultiplied(*r, *g, *b, a));
+                                // The terminal gives us raw sRGB color tuples
+                                // for each cell; convert to the linear-HDR
+                                // representation egui will write to the target.
+                                let bg = srgb_to_display_color32(Color32::from_rgba_unmultiplied(*r, *g, *b, a));
+                                painter.rect_filled(bg_rect, 0.0, Color32::from_rgba_premultiplied(bg.r(), bg.g(), bg.b(), bg.a()));
                             }
 
                             // Draw character
                             let [r, g, b] = fg_rgb;
-                            let fg = Color32::from_rgb(*r, *g, *b);
+                            let fg = srgb_to_display_color32(Color32::from_rgb(*r, *g, *b));
                             painter.text(
                                 egui::pos2(x, y),
                                 egui::Align2::LEFT_TOP,

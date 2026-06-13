@@ -19,6 +19,7 @@ use mythterm_mux::Mux;
 use mythterm_render::{BloomRenderer, LcdParams, PostProcess, RenderTarget, TonemapParams};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
+use mythterm_ui::srgb_to_display_color32;
 use mythterm_ui::tabbar::TabBar;
 use mythterm_ui::terminal_widget::TerminalWidget;
 use mythterm_ui::AppState;
@@ -28,6 +29,27 @@ use mythterm_ui::AppState;
 struct Args {
     #[arg(long, short = 'n')]
     skip_config: bool,
+}
+
+/// Apply the cinematic dark theme to an egui context.
+///
+/// - Dark `panel_fill` and `window_fill` so panels (tab bar, etc.)
+///   match the dark background instead of using egui's default
+///   near-white surfaces.
+/// - Cyan accent for `selection.bg_fill` so text selection and
+///   interactive elements pick up the same accent as the active-tab
+///   underline.
+fn apply_cinematic_dark_theme(ctx: &Context) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.override_text_color = Some(srgb_to_display_color32(egui::Color32::from_rgb(232, 234, 240)));
+    visuals.panel_fill = srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28));
+    visuals.window_fill = srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28));
+    visuals.extreme_bg_color = srgb_to_display_color32(egui::Color32::from_rgb(10, 12, 16));
+    visuals.faint_bg_color = srgb_to_display_color32(egui::Color32::from_rgb(28, 30, 36));
+    visuals.selection.bg_fill = srgb_to_display_color32(egui::Color32::from_rgb(72, 176, 224));
+    visuals.selection.stroke.color = srgb_to_display_color32(egui::Color32::from_rgb(232, 234, 240));
+    visuals.hyperlink_color = srgb_to_display_color32(egui::Color32::from_rgb(72, 176, 224));
+    ctx.set_visuals(visuals);
 }
 
 /// Egui rendering state.
@@ -197,7 +219,11 @@ impl ApplicationHandler for MythtermApp {
         let attrs = Window::default_attributes()
             .with_title("mythterm")
             .with_inner_size(winit::dpi::LogicalSize::new(1024, 768))
-            .with_transparent(true);
+            .with_transparent(true)
+            // Hide the OS title bar so the dark cinematic title bar
+            // we draw in egui isn't fighting a light system title bar.
+            .with_decorations(false)
+            .with_resizable(true);
         let window = Arc::new(event_loop.create_window(attrs).expect("Failed to create window"));
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -253,6 +279,10 @@ impl ApplicationHandler for MythtermApp {
         });
 
         let egui_ctx = Context::default();
+        // Cinematic dark theme — without this, panels (tab bar, etc.)
+        // use egui's default near-white `panel_fill` and the whole
+        // chrome ends up light regardless of the terminal palette.
+        apply_cinematic_dark_theme(&egui_ctx);
 
         // Load Nerd Font for terminal rendering
         let font_discovery = mythterm_font::FontDiscovery::new();
@@ -483,7 +513,11 @@ impl ApplicationHandler for MythtermApp {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.should_quit {
+            event_loop.exit();
+            return;
+        }
         if let Some(w) = &self.window { w.request_redraw(); }
     }
 }
@@ -550,46 +584,168 @@ impl MythtermApp {
         let mut spawn_new_tab = false;
         let mut close_tab = false;
         let mut open_search = false;
-
-        // Tab bar.
-        //
-        // `Panel::top` and `CentralPanel::default` only expose the new
-        // `show_inside(&mut Ui, ...)` API in egui 0.34. The deprecated
-        // `show(&Context, ...)` is the only way to add top-level
-        // panels without restructuring the whole UI build, so the
-        // warnings are suppressed at the call site until a proper
-        // top-level replacement lands upstream.
-        #[allow(deprecated)]
         let mut tab_clicked = false;
-        #[allow(deprecated)]
-        egui::Panel::top("tab_bar").show(&egui.egui_ctx, |ui| {
-            let tab_bar = TabBar::new(self.app_state.tab_titles.clone(), self.app_state.active_tab);
-            if let Some(clicked) = tab_bar.show(ui) {
-                if clicked < self.app_state.tab_titles.len() {
-                    self.app_state.active_tab = clicked;
-                    tab_clicked = true;
-                } else {
-                    spawn_new_tab = true;
-                }
-            }
-        });
 
-        // Terminal content - use transparent frame to avoid gray background.
+        // Custom title bar (cinematic, dark).
+        //
+        // We hide the OS title bar via `with_decorations(false)` and
+        // draw our own so the chrome stays dark even when the user's
+        // system theme is light. The bar is also the window-drag
+        // region — egui's `Sense::drag()` plus `Window::drag_window()`
+        // hands the gesture off to the WM.
+        //
+        // We bundle the title bar AND the tab bar into a single
+        // top panel so they share one `available_rect` and stack
+        // correctly. Stacking two `Panel::top` calls in egui 0.34
+        // leaves a gap between them, which is exactly what the
+        // previous "two-panel" layout produced.
+        let title_bar_h = 28.0;
+        let tab_bar_h = 36.0;
+        let chrome_h = title_bar_h + tab_bar_h;
+        #[allow(deprecated)]
+        egui::Panel::top("chrome")
+            .frame(egui::Frame {
+                inner_margin: egui::Margin::ZERO,
+                fill: srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28)),
+                stroke: egui::Stroke::new(0.0, egui::Color32::TRANSPARENT),
+                ..Default::default()
+            })
+            .show_separator_line(false)
+            .exact_height(chrome_h)
+            .show(&egui.egui_ctx, |ui| {
+                let bar_rect = egui::Rect::from_min_size(
+                    ui.cursor().min,
+                    egui::vec2(ui.available_width(), title_bar_h),
+                );
+                let button_w = 36.0;
+
+                // Allocate the drag area on the left. This advances
+                // the cursor past the title-bar height.
+                let drag_rect = egui::Rect::from_min_max(
+                    bar_rect.min,
+                    egui::pos2(bar_rect.max.x - 3.0 * button_w, bar_rect.max.y),
+                );
+                let drag_response = ui.allocate_exact_size(drag_rect.size(), egui::Sense::drag()).1;
+
+                if drag_response.drag_started() {
+                    if let Some(w) = &self.window {
+                        if let Err(e) = w.drag_window() {
+                            log::debug!("drag_window: {e:?}");
+                        }
+                    }
+                }
+
+                // Centered title.
+                ui.painter().text(
+                    drag_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "mythterm",
+                    egui::FontId::proportional(13.0),
+                    srgb_to_display_color32(egui::Color32::from_rgb(232, 234, 240)),
+                );
+
+                // Window controls (right side).
+                //
+                // We use `ui.interact` (not `allocate_exact_size`)
+                // so the cursor doesn't advance vertically for the
+                // three buttons — they live inside the same row as
+                // the drag area, and advancing the cursor would
+                // push the tab bar out of the panel.
+                let btn = |ui: &mut egui::Ui, x: f32, label: &str, fg: egui::Color32, hover: egui::Color32| -> bool {
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(x, bar_rect.min.y),
+                        egui::vec2(button_w, title_bar_h),
+                    );
+                    let r = ui.interact(rect, ui.id().with(("win_btn", label)), egui::Sense::click());
+                    if r.hovered() {
+                        ui.painter().rect_filled(rect, 0.0, hover);
+                    }
+                    ui.painter().text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        label,
+                        egui::FontId::proportional(14.0),
+                        fg,
+                    );
+                    r.clicked()
+                };
+                let close_hover = srgb_to_display_color32(egui::Color32::from_rgb(232, 76, 76));
+                let base_fg = srgb_to_display_color32(egui::Color32::from_rgb(180, 184, 196));
+                let neutral_hover = srgb_to_display_color32(egui::Color32::from_rgb(58, 62, 74));
+                let btn_x = bar_rect.max.x - 3.0 * button_w;
+                if btn(ui, btn_x, "\u{2014}", base_fg, neutral_hover) {
+                    if let Some(w) = &self.window { w.set_minimized(true); }
+                }
+                if btn(ui, btn_x + button_w, "\u{25A1}", base_fg, neutral_hover) {
+                    if let Some(w) = &self.window {
+                        w.set_maximized(!w.is_maximized());
+                    }
+                }
+                if btn(ui, btn_x + 2.0 * button_w, "\u{2715}", base_fg, close_hover) {
+                    self.should_quit = true;
+                }
+
+                // Tab bar (same `chrome` panel). The cursor is
+                // already at y=title_bar_h thanks to the drag-area
+                // allocation above, so the tab bar naturally
+                // stacks directly below the title bar.
+                let tab_bar = TabBar::new(self.app_state.tab_titles.clone(), self.app_state.active_tab);
+                if let Some(clicked) = tab_bar.show(ui) {
+                    if clicked < self.app_state.tab_titles.len() {
+                        self.app_state.active_tab = clicked;
+                        tab_clicked = true;
+                    } else {
+                        spawn_new_tab = true;
+                    }
+                }
+            });
+
+        // Terminal content.
+        //
+        // We *cannot* use `Frame::NONE` here because the window is
+        // created with `with_transparent(true)` so the corner
+        // radius / cinematic look can punch through. A transparent
+        // central-panel frame therefore lets the desktop show
+        // through any rows the terminal widget doesn't cover (a
+        // bare prompt is only 1 row tall). The terminal widget
+        // itself draws a background rect, but for safety we also
+        // fill the central panel with the configured background
+        // color — this way the entire region is dark even if the
+        // widget is smaller than expected.
+        let settings = self.config.get_settings();
+        // The egui-wgpu renderer writes vertex colors as-is to our
+        // linear HDR target, which is then ACES-tonemapped and
+        // sRGB-encoded on the swapchain write. Config colors are
+        // sRGB-authored and would otherwise come out brightened
+        // (e.g. #1E1E1E -> #6F6F6F). `srgb_to_display_color32`
+        // inverts the full chain (sRGB decode -> ACES inverse) so
+        // the screen displays the authored sRGB value.
+        let panel_bg = srgb_to_display_color32(egui::Color32::from_rgb(
+            settings.color_scheme.background[0],
+            settings.color_scheme.background[1],
+            settings.color_scheme.background[2],
+        ));
         #[allow(deprecated)]
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame {
+                fill: panel_bg,
+                stroke: egui::Stroke::new(0.0, egui::Color32::TRANSPARENT),
+                ..egui::Frame::default()
+            })
             .show(&egui.egui_ctx, |ui| {
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let colored_lines = pane.get_colored_lines();
                     let cursor = pane.get_cursor_position();
 
-                    let mut widget = TerminalWidget::with_colored_content(
+                    let widget = TerminalWidget::with_colored_content(
                         colored_lines,
                         self.metrics.cell_width,
                         self.metrics.cell_height,
-                    );
-                    widget = widget.cursor(cursor.0, cursor.1).bg_opacity(self.bg_opacity);
+                    )
+                    .bg_color(panel_bg)
+                    .cursor(cursor.0, cursor.1)
+                    .bg_opacity(self.bg_opacity);
                     ui.add(widget);
                 }
             }
@@ -645,6 +801,13 @@ impl MythtermApp {
 
         // Render egui into offscreen render target (HDR texture)
         if let Some(rt) = &self.render_target {
+            // Use the configured background color in linear space.
+            // The render target is `Rgba16Float` (linear), and the
+            // tonemap pass writes to an sRGB swapchain, so a
+            // direct `0.118` value here would be gamma-encoded on
+            // output and display as ~#646464 instead of the
+            // configured #1E1E1E.
+            let [lr, lg, lb] = self.config.get_settings().color_scheme.background_linear();
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("egui -> render target"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -652,7 +815,12 @@ impl MythtermApp {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.118, g: 0.118, b: 0.118, a: self.bg_opacity as f64 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: lr as f64,
+                            g: lg as f64,
+                            b: lb as f64,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

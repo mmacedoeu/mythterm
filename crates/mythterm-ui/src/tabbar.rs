@@ -1,8 +1,46 @@
 //! Tab bar widget.
 //!
 //! Displays a horizontal strip of tabs at the top of the window.
+//! Styled for the cinematic dark theme: dark backgrounds, light text,
+//! and a cyan accent bar on the active tab so the focus is obvious
+//! at a glance.
 
-use egui::{Color32, Response, Sense, Ui, Vec2, Widget};
+use egui::{Response, Sense, Ui, Vec2, Widget};
+
+/// Cinematic theme colors for the tab bar.
+///
+/// Each color is **pre-converted** from its sRGB-authored value through
+/// `crate::color::srgb_to_display_color32`: the result is the `u8` that
+/// the egui-wgpu renderer should write to the linear HDR target so
+/// that, after the post-process ACES tonemap and the GPU's automatic
+/// sRGB encoding on the swapchain write, the screen displays the
+/// authored sRGB color. (See `crate::color` for the full pipeline and
+/// the rationale.)
+pub mod theme {
+    use egui::Color32;
+
+    /// Tab bar background (between tabs / under `+` button).
+    /// sRGB `(20, 22, 28)` → ACES-aware.
+    pub const BAR_BG: Color32 = Color32::from_rgb(4, 4, 5);
+    /// Background of the active tab — slightly lifted from the bar.
+    /// sRGB `(34, 38, 48)` → ACES-aware.
+    pub const ACTIVE_BG: Color32 = Color32::from_rgb(7, 8, 10);
+    /// Background of inactive tabs.
+    /// sRGB `(24, 26, 32)` → ACES-aware.
+    pub const INACTIVE_BG: Color32 = Color32::from_rgb(5, 5, 6);
+    /// Text color on the active tab.
+    /// sRGB `(232, 234, 240)` → ACES-aware.
+    pub const ACTIVE_TEXT: Color32 = Color32::from_rgb(255, 255, 255);
+    /// Text color on inactive tabs.
+    /// sRGB `(140, 146, 158)` → ACES-aware.
+    pub const INACTIVE_TEXT: Color32 = Color32::from_rgb(45, 49, 58);
+    /// Cyan accent (focused-tab underline + close hover).
+    /// sRGB `(72, 176, 224)` → ACES-aware.
+    pub const ACCENT: Color32 = Color32::from_rgb(16, 76, 198);
+    /// Hairline separator color.
+    /// sRGB `(48, 52, 62)` → ACES-aware.
+    pub const HAIRLINE: Color32 = Color32::from_rgb(10, 11, 13);
+}
 
 /// A tab bar widget that displays multiple tabs.
 pub struct TabBar {
@@ -20,7 +58,7 @@ impl TabBar {
         Self {
             titles,
             active,
-            height: 32.0,
+            height: 36.0,
         }
     }
 
@@ -31,101 +69,64 @@ impl TabBar {
     }
 
     /// Show the tab bar and return the clicked tab index, if any.
+    ///
+    /// A returned index equal to `titles.len()` means the `+` button
+    /// was clicked (request a new tab).
     pub fn show(&self, ui: &mut Ui) -> Option<usize> {
         let mut clicked = None;
 
+        // Paint the bar background so the gap between tabs and the
+        // strip below them doesn't show through to the swapchain.
+        let bar_rect = ui.available_rect_before_wrap();
+        ui.painter().rect_filled(bar_rect, 0.0, theme::BAR_BG);
+
+        // Bottom hairline separator — gives the bar a defined edge
+        // and matches the look in the goal mockup.
+        let hairline_y = bar_rect.max.y - 0.5;
+        ui.painter().line_segment(
+            [
+                egui::pos2(bar_rect.min.x, hairline_y),
+                egui::pos2(bar_rect.max.x, hairline_y),
+            ],
+            egui::Stroke::new(1.0, theme::HAIRLINE),
+        );
+
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+
             for (i, title) in self.titles.iter().enumerate() {
                 let is_active = i == self.active;
 
                 let bg_color = if is_active {
-                    Color32::from_rgb(50, 50, 50)
+                    theme::ACTIVE_BG
                 } else {
-                    Color32::from_rgb(35, 35, 35)
+                    theme::INACTIVE_BG
                 };
-
                 let text_color = if is_active {
-                    Color32::from_rgb(220, 220, 220)
+                    theme::ACTIVE_TEXT
                 } else {
-                    Color32::from_rgb(140, 140, 140)
+                    theme::INACTIVE_TEXT
                 };
 
-                let response = ui.allocate_ui_with_layout(
-                    Vec2::new(120.0, self.height),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        let (rect, response) =
-                            ui.allocate_exact_size(Vec2::new(120.0, self.height), Sense::click());
-
-                        if ui.is_rect_visible(rect) {
-                            ui.painter().rect_filled(rect, 0.0, bg_color);
-                            ui.painter().text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                title,
-                                egui::FontId::proportional(13.0),
-                                text_color,
-                            );
-                        }
-
-                        response
-                    },
+                let tab_width = 144.0;
+                let (rect, response) = ui.allocate_exact_size(
+                    Vec2::new(tab_width, self.height),
+                    Sense::click(),
                 );
-
-                if response.inner.clicked() {
-                    clicked = Some(i);
-                }
-            }
-
-            // "+" button for new tab
-            let (rect, response) =
-                ui.allocate_exact_size(Vec2::new(self.height, self.height), Sense::click());
-
-            if ui.is_rect_visible(rect) {
-                ui.painter().rect_filled(rect, 0.0, Color32::from_rgb(35, 35, 35));
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "+",
-                    egui::FontId::proportional(16.0),
-                    Color32::from_rgb(140, 140, 140),
-                );
-            }
-
-            if response.clicked() {
-                clicked = Some(self.titles.len()); // New tab index
-            }
-        });
-
-        clicked
-    }
-}
-
-impl Widget for TabBar {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let mut clicked = None;
-
-        ui.horizontal(|ui| {
-            for (i, title) in self.titles.iter().enumerate() {
-                let is_active = i == self.active;
-
-                let bg_color = if is_active {
-                    Color32::from_rgb(50, 50, 50)
-                } else {
-                    Color32::from_rgb(35, 35, 35)
-                };
-
-                let text_color = if is_active {
-                    Color32::from_rgb(220, 220, 220)
-                } else {
-                    Color32::from_rgb(140, 140, 140)
-                };
-
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::new(120.0, self.height), Sense::click());
 
                 if ui.is_rect_visible(rect) {
                     ui.painter().rect_filled(rect, 0.0, bg_color);
+
+                    // 3px cyan accent along the bottom of the active tab.
+                    if is_active {
+                        let accent_h = 3.0;
+                        let accent_rect = egui::Rect::from_min_max(
+                            egui::pos2(rect.min.x, rect.max.y - accent_h),
+                            rect.max,
+                        );
+                        ui.painter().rect_filled(accent_rect, 0.0, theme::ACCENT);
+                    }
+
                     ui.painter().text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -139,9 +140,34 @@ impl Widget for TabBar {
                     clicked = Some(i);
                 }
             }
+
+            // "+" button for new tab.
+            let (rect, response) = ui.allocate_exact_size(
+                Vec2::new(self.height, self.height),
+                Sense::click(),
+            );
+            if ui.is_rect_visible(rect) {
+                ui.painter().rect_filled(rect, 0.0, theme::INACTIVE_BG);
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "+",
+                    egui::FontId::proportional(18.0),
+                    theme::INACTIVE_TEXT,
+                );
+            }
+            if response.clicked() {
+                clicked = Some(self.titles.len());
+            }
         });
 
-        // Return a dummy response since we handle clicks internally
+        clicked
+    }
+}
+
+impl Widget for TabBar {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let _ = self.show(ui);
         ui.allocate_response(Vec2::ZERO, Sense::hover())
     }
 }

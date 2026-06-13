@@ -8,6 +8,7 @@
 //! - Toast notifications
 
 pub mod clipboard;
+pub mod color;
 pub mod colored;
 pub mod input;
 pub mod overlay;
@@ -18,6 +19,7 @@ pub mod toast;
 pub mod url;
 
 pub use clipboard::{ClipboardHandler, ClipboardProvider, PlatformClipboard};
+pub use color::srgb_to_display_color32;
 pub use input::InputMapper;
 pub use tabbar::TabBar;
 pub use terminal_widget::TerminalWidget;
