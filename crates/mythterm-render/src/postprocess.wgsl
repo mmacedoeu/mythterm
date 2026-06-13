@@ -185,22 +185,32 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// Glass Cover Pass: Simulate glass cover layer reflection
+// Glass Cover Pass: Real environment reflection
 // ============================================================
 //
-// Adds a subtle reflection from a procedural environment on top
-// of the LCD output. Models a glass cover layer (like a premium
-// laptop or external display) that has:
-// - A bright ceiling reflection at the top of the screen
-// - A subtle Fresnel brightening at the screen edges
+// Samples a procedural environment cubemap at the reflection
+// direction derived from the screen position. The reflection
+// direction is the line of sight from the camera to the surface
+// point, extended behind the screen — physically what a flat
+// mirror would reflect.
 //
-// The reflection is additively blended with the scene in HDR space,
-// so it's tonemapped together with the rest of the scene. This is
-// a procedural environment (vertical gradient + horizontal sine
-// variation) — a future pass can swap in a real cubemap.
+// The cubemap is a simple indoor "room":
+//   +Y face: warm white ceiling
+//   -Y face: dark cool floor
+//   ±X, ±Z: dim neutral walls
+//
+// Combined with a Fresnel edge falloff so reflections are
+// strongest at the screen edges (where a real glass cover would
+// reflect at grazing angles) and weakest in the center.
 
 @group(0) @binding(2)
 var<uniform> u_glass: GlassParams;
+
+@group(0) @binding(4)
+var env_map: texture_cube<f32>;
+
+@group(0) @binding(5)
+var env_sampler: sampler;
 
 struct GlassParams {
     /// 0..1: overall reflection intensity.
@@ -208,13 +218,13 @@ struct GlassParams {
     /// 0..1: Fresnel F0 (reflection at normal incidence).
     /// 0.04 is the physical value for glass.
     fresnel_bias: f32,
-    /// Exponent on the top-gradient falloff. Higher = more localized
-    /// at the very top of the screen.
+    /// Unused — kept for ABI compatibility with the previous
+    /// procedural version of the glass pass.
     top_falloff: f32,
     /// 16-byte alignment pad.
     _pad0: f32,
-    /// Ceiling reflection color (RGB, warm white by default).
-    /// vec4 in uniform is 16 bytes, so the struct is 32 bytes total.
+    /// Unused — the environment cubemap provides the ceiling
+    /// color. Kept for ABI compatibility.
     ceiling_color: vec4<f32>,
 }
 
@@ -222,23 +232,34 @@ struct GlassParams {
 fn glass_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let scene = textureSample(input_texture, input_sampler, in.uv);
 
-    // Top gradient: bright at the top, fading toward the bottom.
-    // pow(t, n) gives a non-linear falloff that looks natural.
-    let t = in.uv.y;
-    let ceiling = u_glass.ceiling_color.rgb;
-    let top_refl = ceiling * pow(t, u_glass.top_falloff);
+    // Compute the reflection direction in world space.
+    //
+    // We treat the screen as a flat plane in the x-y plane at z=0,
+    // with the camera at +z. The reflection direction at each
+    // screen point is the line of sight from the camera to that
+    // point, extended behind the screen (i.e. -z). For a perspective
+    // camera this is just (screen_x, screen_y, -1) where screen_x
+    // and screen_y are normalized screen coordinates.
+    //
+    // The cubemap is sampled at this direction. At the top of the
+    // screen, screen_y > 0, so we sample near the +Y face (ceiling).
+    // At the bottom, near -Y (floor). At the sides, the walls.
+    let dims = vec2<f32>(textureDimensions(input_texture));
+    let aspect = dims.x / dims.y;
+    let screen_x = (in.uv.x - 0.5) * 2.0 * aspect;
+    let screen_y = (0.5 - in.uv.y) * 2.0;
+    let env_dir = vec3<f32>(screen_x, screen_y, -1.0);
 
-    // Horizontal variation: simulate a strip light or window.
-    // 0.4..1.0 over the screen width — gentle, not distracting.
-    let horiz = 0.7 + 0.3 * sin(in.uv.x * 6.28318);
-    let top_with_var = top_refl * horiz;
+    let env_color = textureSample(env_map, env_sampler, env_dir).rgb;
 
-    // Edge Fresnel: stronger reflection at screen edges.
+    // Edge Fresnel: stronger reflection at the screen edges. At
+    // the very edge, edge_factor = 1 and fresnel = 1.0; at the
+    // center, edge_factor = 0 and fresnel = fresnel_bias (0.04).
     let dist_from_edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));
     let edge_factor = 1.0 - clamp(dist_from_edge * 2.0, 0.0, 1.0);
     let fresnel = u_glass.fresnel_bias + (1.0 - u_glass.fresnel_bias) * edge_factor * edge_factor;
 
-    let reflection = top_with_var * fresnel * u_glass.intensity;
+    let reflection = env_color * fresnel * u_glass.intensity;
 
     return vec4<f32>(scene.rgb + reflection, scene.a);
 }

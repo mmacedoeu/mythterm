@@ -23,6 +23,8 @@
 
 use wgpu::{Device, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
+use crate::environment::EnvironmentMap;
+
 /// Shared screen-curvature parameters (mirrors the WGSL `CurvatureParams`).
 ///
 /// 16 bytes — keep this layout in sync with the WGSL. The curvature
@@ -198,6 +200,10 @@ pub struct PostProcess {
     /// UVs of the LCD, glass, and tonemap passes.
     curvature_uniform_buffer: wgpu::Buffer,
 
+    /// Procedural environment cubemap used by the glass reflection
+    /// pass. Static — created once, never modified.
+    env_map: EnvironmentMap,
+
     /// Current scene width.
     width: u32,
     /// Current scene height.
@@ -209,7 +215,13 @@ impl PostProcess {
     ///
     /// `output_format` is the format of the swapchain (e.g.
     /// `Bgra8UnormSrgb`). The tonemap pass writes into it.
-    pub fn new(device: &Device, output_format: TextureFormat, width: u32, height: u32) -> Self {
+    pub fn new(
+        device: &Device,
+        queue: &wgpu::Queue,
+        output_format: TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let (scene_a_texture, scene_a_view, scene_a_sample_view, scene_b_texture, scene_b_view, scene_b_sample_view, scene_c_texture, scene_c_view, scene_c_sample_view, sampler) =
             Self::create_scenes(device, width, height);
         let (lcd_bind_group_layout, lcd_pipeline, lcd_uniform_buffer) =
@@ -225,6 +237,8 @@ impl PostProcess {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+
+        let env_map = EnvironmentMap::new(device, queue);
 
         Self {
             scene_a_texture,
@@ -247,6 +261,7 @@ impl PostProcess {
             tonemap_bind_group_layout,
             tonemap_uniform_buffer,
             curvature_uniform_buffer,
+            env_map,
             width,
             height,
         }
@@ -416,6 +431,14 @@ impl PostProcess {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: self.curvature_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.env_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&self.env_map.sampler),
                 },
             ],
         });
@@ -675,6 +698,22 @@ impl PostProcess {
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(16),
                     },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],

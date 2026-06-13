@@ -5,6 +5,7 @@
 
 pub mod atlas;
 pub mod bloom;
+pub mod environment;
 pub mod pipeline;
 pub mod postprocess;
 pub mod render_target;

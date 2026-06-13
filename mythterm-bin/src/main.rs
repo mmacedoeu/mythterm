@@ -318,21 +318,26 @@ impl ApplicationHandler for MythtermApp {
         // PostProcess owns the two HDR scene textures (bloom→LCD→
         // tonemap chain) and writes the final sRGB-ready result to
         // the swapchain.
-        let post = PostProcess::new(&device, surface_format, rt_width, rt_height);
+        let post = PostProcess::new(&device, &queue, surface_format, rt_width, rt_height);
         // Apply LCD subpixel + tonemap pass parameters from config.
         {
             let s = self.config.get_settings();
             let cinematic = &s.cinematic;
             use mythterm_render::{CurvatureParams, GlassParams};
-            post.set_curvature_params(
-                &queue,
-                CurvatureParams {
-                    strength: cinematic.screen_curvature,
-                    _pad0: 0.0,
-                    _pad1: 0.0,
-                    _pad2: 0.0,
-                },
-            );
+            // Curvature is shared between bloom and post-process (same
+            // vertex shader), so build the params once and apply to
+            // both. Bloom writes to flat intermediates, so curvature
+            // is a no-op there — but the uniform is still bound.
+            let curvature = CurvatureParams {
+                strength: cinematic.screen_curvature,
+                _pad0: 0.0,
+                _pad1: 0.0,
+                _pad2: 0.0,
+            };
+            post.set_curvature_params(&queue, curvature);
+            if let Some(bloom) = self.bloom.as_ref() {
+                bloom.set_curvature_params(&queue, curvature);
+            }
             post.set_glass_params(
                 &queue,
                 GlassParams {
