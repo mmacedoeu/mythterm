@@ -16,7 +16,7 @@ use mythterm_mux::domain::{Domain, LocalDomain};
 use mythterm_mux::pane::PaneId;
 use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
-use mythterm_render::{BloomRenderer, PostProcess, RenderTarget};
+use mythterm_render::{BloomRenderer, LcdParams, PostProcess, RenderTarget};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -315,10 +315,22 @@ impl ApplicationHandler for MythtermApp {
         self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
         // Bloom writes HDR (Rgba16Float) — never touches the swapchain.
         self.bloom = Some(BloomRenderer::new(&device, rt_width, rt_height));
-        // PostProcess owns the HDR scene buffer that bloom writes
-        // into and the tonemap pass that finishes the pipeline to
+        // PostProcess owns the two HDR scene textures (bloom→LCD→
+        // tonemap chain) and writes the final sRGB-ready result to
         // the swapchain.
-        self.post_process = Some(PostProcess::new(&device, surface_format, rt_width, rt_height));
+        let post = PostProcess::new(&device, surface_format, rt_width, rt_height);
+        // Apply LCD subpixel pass parameters from config.
+        let lcd = {
+            let s = self.config.get_settings();
+            LcdParams {
+                strength: s.cinematic.lcd_strength,
+                subpixel_width: s.cinematic.lcd_subpixel_width,
+                scanline: s.cinematic.lcd_scanline,
+                _pad: 0.0,
+            }
+        };
+        post.set_lcd_params(&queue, lcd);
+        self.post_process = Some(post);
 
         // Create egui renderer for the render target format (HDR)
         let egui_renderer = egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba16Float, egui_wgpu::RendererOptions::default());

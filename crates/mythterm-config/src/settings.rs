@@ -2,6 +2,30 @@ use serde::{Deserialize, Serialize};
 
 use crate::scheme::ColorScheme;
 
+/// Cinematic / post-processing settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CinematicSettings {
+    /// LCD subpixel pass strength (0.0 = off, 1.0 = full effect).
+    /// Default: 0.35 — subtle but visible color fringing on text edges.
+    pub lcd_strength: f32,
+    /// Subpixel width as fraction of a pixel.
+    /// 0.33 = RGB stripe, 0.5 = RGBG PenTile.
+    pub lcd_subpixel_width: f32,
+    /// LCD scanline modulation (0.0 = off, 1.0 = full scanline).
+    pub lcd_scanline: f32,
+}
+
+impl Default for CinematicSettings {
+    fn default() -> Self {
+        Self {
+            lcd_strength: 0.35,
+            lcd_subpixel_width: 0.33,
+            lcd_scanline: 0.0,
+        }
+    }
+}
+
 /// Top-level mythterm configuration, loaded from TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,6 +56,8 @@ pub struct Settings {
     pub bidi_enabled: bool,
     /// Background opacity (0.0 = fully transparent, 1.0 = fully opaque).
     pub background_opacity: f32,
+    /// Cinematic / post-processing settings.
+    pub cinematic: CinematicSettings,
 }
 
 impl Default for Settings {
@@ -50,6 +76,7 @@ impl Default for Settings {
             debug_escape_sequences: false,
             bidi_enabled: false,
             background_opacity: 0.8,
+            cinematic: CinematicSettings::default(),
         }
     }
 }

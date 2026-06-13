@@ -89,38 +89,63 @@ fn bloom_blur_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// LCD Subpixel Pass: Simulate RGB subpixels
+// LCD Subpixel Pass: Simulate RGB subpixel rendering
 // ============================================================
+//
+// Reads the HDR scene, samples the R, G, B channels at slightly
+// shifted UVs to mimic a physical RGB-stripe LCD's per-subpixel
+// addressing. This produces the subtle color fringing on text edges
+// (a la ClearType / Apple Retina LCD look) without actually
+// rasterizing glyphs at subpixel resolution.
+//
+// Strength is exposed via a uniform so it can be tuned at runtime
+// (or driven from a config setting). At strength=0 the pass is a
+// no-op (just passes through the input).
+
+@group(0) @binding(2)
+var<uniform> u_lcd: LcdParams;
+
+struct LcdParams {
+    /// 0..1: blend between original and subpixel-sampled result.
+    strength: f32,
+    /// Subpixel width as fraction of a pixel. 0.33 for RGB stripe,
+    /// 0.5 for RGBG PenTile, etc.
+    subpixel_width: f32,
+    /// 0..1: scanline modulation amplitude. 0 disables.
+    scanline: f32,
+    /// 16-byte alignment pad.
+    _pad: f32,
+}
+
 @fragment
 fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(input_texture, input_sampler, in.uv);
+    let orig = textureSample(input_texture, input_sampler, in.uv);
+    let texel = 1.0 / vec2<f32>(textureDimensions(input_texture));
 
-    let screen_size = vec2<f32>(textureDimensions(input_texture));
-    let pixel_x = in.uv.x * screen_size.x;
+    // Sample R, G, B at their subpixel positions.
+    // RGB-stripe layout: R left, G center, B right.
+    let sub = u_lcd.subpixel_width * texel.x;
+    let r = textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-sub, 0.0)).r;
+    let g = textureSample(input_texture, input_sampler, in.uv).g;
+    let b = textureSample(input_texture, input_sampler, in.uv + vec2<f32>(sub, 0.0)).b;
+    let subpixel = vec4<f32>(r, g, b, orig.a);
 
-    // RGB subpixel stripe
-    let stripe = fract(pixel_x * 3.0);
+    // Blend between original and subpixel-sampled.
+    var color = mix(orig, subpixel, u_lcd.strength);
 
-    var result = color;
-
-    // Subtle channel bias based on subpixel position
-    if stripe < 0.333 {
-        result.g *= 0.97;
-        result.b *= 0.94;
-    } else if stripe < 0.666 {
-        result.r *= 0.97;
-        result.b *= 0.97;
-    } else {
-        result.r *= 0.94;
-        result.g *= 0.97;
+    // Optional subtle scanline (modern LCD, not CRT).
+    if u_lcd.scanline > 0.0 {
+        let screen_h = f32(textureDimensions(input_texture).y);
+        let pixel_y = in.uv.y * screen_h;
+        // Soft per-row brightness dip. sin gives a value in [-1, 1];
+        // remap to [1-scanline, 1].
+        let dip = 0.5 - 0.5 * sin(pixel_y * 3.14159265);
+        // WGSL forbids swizzle assignment, so build the new vec4.
+        let scale = 1.0 - u_lcd.scanline * dip;
+        color = vec4<f32>(color.rgb * scale, color.a);
     }
 
-    // Subtle scanline effect (modern LCD, not CRT)
-    let pixel_y = in.uv.y * screen_size.y;
-    let scanline = 1.0 - 0.015 * sin(pixel_y * 3.14159);
-    result *= scanline;
-
-    return vec4<f32>(result.rgb, color.a);
+    return color;
 }
 
 // ============================================================
