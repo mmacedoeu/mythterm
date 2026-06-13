@@ -51,7 +51,7 @@ pub struct CinematicSettings {
     /// Default: bright cyan (96, 188, 232) — matches the goal mockup.
     pub window_border_glow: [u8; 3],
     /// Window border glow width in pixels.
-    /// 0.0 = no border. Default: 1.5.
+    /// 0.0 = no border. Default: 2.0.
     pub window_border_glow_width: f32,
     /// Enable the "light from the right" gradient overlay on the
     /// terminal background. Subtle horizontal gradient: dark on the
@@ -81,7 +81,7 @@ impl Default for CinematicSettings {
             screen_curvature: 0.05,
             window_corner_radius: 10.0,
             window_border_glow: [96, 188, 232],
-            window_border_glow_width: 1.5,
+            window_border_glow_width: 2.0,
             window_light_from_right: true,
             window_light_from_right_strength: 0.35,
         }

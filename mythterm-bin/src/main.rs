@@ -880,15 +880,17 @@ impl MythtermApp {
             );
             let painter = egui.egui_ctx.layer_painter(fg_layer);
             let cr = egui::CornerRadius::same(corner_radius_u8);
-            // Inner crisp stroke.
+            // Inner crisp stroke (thin, bright).
             painter.rect_stroke(
                 screen_rect,
                 cr,
                 egui::Stroke::new(settings.cinematic.window_border_glow_width, base_disp),
                 egui::StrokeKind::Inside,
             );
-            // Outer glow: 3 progressively wider, dimmer strokes.
-            for (i, (w_mult, a_mult)) in [(2.5, 0.55_f32), (4.5, 0.28), (7.0, 0.12)].iter().enumerate() {
+            // Outer glow: tighter, brighter halo to match the goal's
+            // premium look. The goal has a sharp 2-3px stroke with a
+            // soft glow extending ~5-7px outward, not a wide diffuse blob.
+            for (w_mult, a_mult) in [(1.8, 0.70_f32), (3.0, 0.38), (4.5, 0.16)].iter() {
                 let glow = egui::Color32::from_rgba_unmultiplied(
                     base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
                 );
@@ -899,7 +901,6 @@ impl MythtermApp {
                     egui::Stroke::new(settings.cinematic.window_border_glow_width * w_mult, glow_disp),
                     egui::StrokeKind::Inside,
                 );
-                let _ = i;
             }
         }
         if self.app_state.search_open {
