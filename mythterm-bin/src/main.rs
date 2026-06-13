@@ -13,10 +13,10 @@ use winit::window::{Window, WindowId};
 use mythterm_config::{load_settings, ensure_config_exists, MythtermConfig, Settings};
 use mythterm_font::FontMetrics;
 use mythterm_mux::domain::{Domain, LocalDomain};
-use mythterm_mux::pane::{Pane, PaneId};
+use mythterm_mux::pane::PaneId;
 use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
-use mythterm_render::{PostProcess, PostPass, RenderTarget};
+use mythterm_render::{BloomRenderer, RenderTarget};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -47,7 +47,7 @@ struct MythtermApp {
     surface_config: Option<wgpu::SurfaceConfiguration>,
     egui: Option<EguiRenderState>,
     render_target: Option<RenderTarget>,
-    post_process: Option<PostProcess>,
+    bloom: Option<BloomRenderer>,
     mux: Arc<Mux>,
     local_domain: Option<LocalDomain>,
     active_pane: Option<PaneId>,
@@ -80,7 +80,7 @@ impl MythtermApp {
             surface_config: None,
             egui: None,
             render_target: None,
-            post_process: None,
+            bloom: None,
             mux: Arc::new(Mux::new()),
             local_domain: None,
             active_pane: None,
@@ -311,7 +311,9 @@ impl ApplicationHandler for MythtermApp {
         let rt_height = surface_config.height;
         let surface_format = surface_config.format;
         self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
-        self.post_process = Some(PostProcess::new(&device, surface_format));
+        // Bloom uses the surface format because its combine step writes
+        // to the swapchain. The intermediate mip chain is always Rgba16Float.
+        self.bloom = Some(BloomRenderer::new(&device, surface_format, rt_width, rt_height));
 
         // Create egui renderer for the render target format (HDR)
         let egui_renderer = egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba16Float, egui_wgpu::RendererOptions::default());
@@ -357,6 +359,10 @@ impl ApplicationHandler for MythtermApp {
                 // Update render target to match new window size
                 if let (Some(device), Some(rt)) = (&self.device, &mut self.render_target) {
                     rt.resize(device, new_size.width.max(1), new_size.height.max(1));
+                }
+                // Update bloom mip chain to match new window size
+                if let (Some(device), Some(bloom)) = (&self.device, &mut self.bloom) {
+                    bloom.resize(device, new_size.width.max(1), new_size.height.max(1));
                 }
                 // Update egui screen descriptor
                 if let Some(egui) = &mut self.egui {
@@ -490,9 +496,18 @@ impl MythtermApp {
         let mut close_tab = false;
         let mut open_search = false;
 
-        // Tab bar
+        // Tab bar.
+        //
+        // `Panel::top` and `CentralPanel::default` only expose the new
+        // `show_inside(&mut Ui, ...)` API in egui 0.34. The deprecated
+        // `show(&Context, ...)` is the only way to add top-level
+        // panels without restructuring the whole UI build, so the
+        // warnings are suppressed at the call site until a proper
+        // top-level replacement lands upstream.
+        #[allow(deprecated)]
         let mut tab_clicked = false;
-        egui::TopBottomPanel::top("tab_bar").show(&egui.egui_ctx, |ui| {
+        #[allow(deprecated)]
+        egui::Panel::top("tab_bar").show(&egui.egui_ctx, |ui| {
             let tab_bar = TabBar::new(self.app_state.tab_titles.clone(), self.app_state.active_tab);
             if let Some(clicked) = tab_bar.show(ui) {
                 if clicked < self.app_state.tab_titles.len() {
@@ -504,9 +519,11 @@ impl MythtermApp {
             }
         });
 
-        // Terminal content - use transparent frame to avoid gray background
-        let panel = egui::CentralPanel::default();
-        panel.frame(egui::Frame::NONE).show(&egui.egui_ctx, |ui| {
+        // Terminal content - use transparent frame to avoid gray background.
+        #[allow(deprecated)]
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(&egui.egui_ctx, |ui| {
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let colored_lines = pane.get_colored_lines();
@@ -592,26 +609,17 @@ impl MythtermApp {
             egui.renderer.render(&mut rpass, &paint_jobs, &egui.screen_descriptor);
         }
 
-        // Apply post-processing passes
-        if let (Some(rt), Some(pp)) = (&self.render_target, &self.post_process) {
-            // Create bind group for render target texture
-            let input_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("PostProcess Input"),
-                layout: pp.bind_group_layout(),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&rt.sample_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&rt.sampler),
-                    },
-                ],
-            });
-
-            // Apply tonemap pass (renders to swapchain)
-            pp.render(&mut encoder, &input_bind_group, &view, PostPass::Tonemap);
+        // Apply bloom (threshold + blur chain + combine + tonemap).
+        // The combine step writes the final sRGB-ready result directly
+        // to the swapchain, so no separate tonemap pass is needed.
+        if let (Some(rt), Some(bloom)) = (&self.render_target, &self.bloom) {
+            bloom.render(
+                device,
+                &mut encoder,
+                &rt.sample_view,
+                &rt.sampler,
+                &view,
+            );
         }
 
         queue.submit(std::iter::once(encoder.finish()));

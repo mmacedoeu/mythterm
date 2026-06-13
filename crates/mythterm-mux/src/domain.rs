@@ -54,6 +54,7 @@ pub trait Domain: Send + Sync + std::fmt::Debug {
 pub struct LocalDomain {
     domain_id: DomainId,
     config: Arc<dyn TerminalConfiguration>,
+    #[allow(dead_code)]
     mux_config: Arc<dyn MuxConfig>,
 }
 

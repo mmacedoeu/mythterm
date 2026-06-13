@@ -33,8 +33,6 @@ pub struct GlyphAtlas {
     texture: wgpu::Texture,
     /// The texture view for binding.
     view: wgpu::TextureView,
-    /// The sampler for sampling the atlas.
-    sampler: wgpu::Sampler,
     /// The bind group for the atlas.
     bind_group: wgpu::BindGroup,
     /// The bind group layout.
@@ -117,7 +115,6 @@ impl GlyphAtlas {
         Self {
             texture,
             view,
-            sampler,
             bind_group,
             bind_group_layout,
             allocator: AtlasAllocator::new(Size::new(width as i32, height as i32)),

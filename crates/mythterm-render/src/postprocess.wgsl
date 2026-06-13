@@ -8,6 +8,12 @@ var input_texture: texture_2d<f32>;
 @group(0) @binding(1)
 var input_sampler: sampler;
 
+// Bloom combine pass bindings (only used by bloom_combine_fs)
+@group(0) @binding(2)
+var bloom_texture: texture_2d<f32>;
+@group(0) @binding(3)
+var bloom_sampler: sampler;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -133,4 +139,29 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.25;
 
     return vec4<f32>(mapped * vignette, color.a);
+}
+
+// ============================================================
+// Bloom Combine + Tonemap Pass (final pass to swapchain)
+// Reads the original HDR + bloom result, adds them, applies ACES
+// tonemap and vignette, and writes the final sRGB-ready output.
+// ============================================================
+@fragment
+fn bloom_combine_fs(in: VertexOutput) -> @location(0) vec4<f32> {
+    let original = textureSample(input_texture, input_sampler, in.uv);
+    let bloom = textureSample(bloom_texture, bloom_sampler, in.uv);
+
+    // Bloom intensity multiplier (matches the 0.8 threshold in bloom_threshold_fs)
+    let bloom_intensity = 0.6;
+    let combined = original.rgb + bloom.rgb * bloom_intensity;
+
+    // Filmic ACES tonemapping
+    let mapped = aces(combined);
+
+    // Slight vignette effect
+    let center = vec2<f32>(0.5, 0.5);
+    let dist = distance(in.uv, center);
+    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.25;
+
+    return vec4<f32>(mapped * vignette, original.a);
 }

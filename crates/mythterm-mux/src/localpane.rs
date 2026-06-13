@@ -7,7 +7,7 @@
 use crate::pane::{Pane, PaneId};
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
-use portable_pty::{ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, ExitStatus, PtySize};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use std::sync::Mutex as StdMutex;
 
 /// State of the child process.
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ProcessState {
     /// Process is running.
     Running {
@@ -103,7 +104,7 @@ impl LocalPane {
         let pid = child.process_id();
         let signaller: Box<dyn ChildKiller + Send + Sync> = child.clone_killer().into();
 
-        let mut master = pair.master;
+        let master = pair.master;
 
         // Create channel for PTY input
         let (input_sender, input_receiver) = flume::unbounded::<Vec<u8>>();
