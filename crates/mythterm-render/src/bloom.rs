@@ -51,6 +51,11 @@ pub struct BloomRenderer {
 
 impl BloomRenderer {
     /// Create a new bloom renderer.
+    ///
+    /// `format` is the format of the final output (the swapchain).
+    /// The threshold and blur passes write to the HDR mip chain
+    /// (`Rgba16Float`) so they get their own format. Only the
+    /// combine pass writes to the swapchain with `format`.
     pub fn new(device: &Device, format: TextureFormat, width: u32, height: u32) -> Self {
         let (bind_group_layout, combine_bind_group_layout, threshold_pipeline, blur_pipeline, combine_pipeline) =
             Self::create_pipelines(device, format);
@@ -173,8 +178,10 @@ impl BloomRenderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("postprocess.wgsl").into()),
         });
 
-        let threshold_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, format, "bloom_threshold_fs");
-        let blur_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, format, "bloom_blur_fs");
+        // Threshold + blur write to the HDR mip chain (Rgba16Float).
+        // Only the combine pass writes to the swapchain (`format`).
+        let threshold_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, TextureFormat::Rgba16Float, "bloom_threshold_fs");
+        let blur_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, TextureFormat::Rgba16Float, "bloom_blur_fs");
         let combine_pipeline = Self::create_pipeline(device, &combine_pipeline_layout, &shader, format, "bloom_combine_fs");
 
         (
