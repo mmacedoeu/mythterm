@@ -12,17 +12,17 @@
 //                     and would only cost an extra uniform binding.
 //
 // Each pass has its own fragment shader entry point.
+//
+// Note: the bloom shaders (threshold, blur, combine) live in
+// `bloom.wgsl` because they have different bind-group layout
+// requirements (they need @binding(3) for the bloom-result
+// sampler, which conflicts with the curvature uniform at
+// @binding(3) used by this file's vertex shader).
 
 @group(0) @binding(0)
 var input_texture: texture_2d<f32>;
 @group(0) @binding(1)
 var input_sampler: sampler;
-
-// Bloom combine pass bindings (only used by bloom_combine_fs)
-@group(0) @binding(2)
-var bloom_texture: texture_2d<f32>;
-@group(0) @binding(3)
-var bloom_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -92,48 +92,14 @@ fn aces(x: vec3<f32>) -> vec3<f32> {
 // ============================================================
 // Bloom Pass 1: Extract bright pixels (threshold)
 // ============================================================
-@fragment
-fn bloom_threshold_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(input_texture, input_sampler, in.uv);
-    let brightness = max(color.r, max(color.g, color.b));
-    let threshold = 0.8;
-
-    if brightness > threshold {
-        // Extract bright pixels with soft knee
-        let knee = 0.2;
-        let soft = brightness - threshold + knee;
-        let contribution = clamp(soft * soft / (4.0 * knee + 0.0001), 0.0, 1.0);
-        return color * contribution;
-    }
-    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
-}
-
+// (Moved to `bloom.wgsl` to avoid @binding(3) conflict with the
+// curvature uniform in this file.)
+//
 // ============================================================
 // Bloom Pass 2: Gaussian blur (downsample + blur)
 // ============================================================
-@fragment
-fn bloom_blur_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    let size = vec2<f32>(textureDimensions(input_texture));
-    let texel = 1.0 / size;
-
-    // 13-tap Gaussian blur (optimized for large radius)
-    var color = vec4<f32>(0.0);
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-6.0, 0.0) * texel) * 0.002;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-5.0, 0.0) * texel) * 0.008;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-4.0, 0.0) * texel) * 0.024;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-3.0, 0.0) * texel) * 0.056;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-2.0, 0.0) * texel) * 0.104;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(-1.0, 0.0) * texel) * 0.152;
-    color += textureSample(input_texture, input_sampler, in.uv) * 0.172;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(1.0, 0.0) * texel) * 0.152;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(2.0, 0.0) * texel) * 0.104;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(3.0, 0.0) * texel) * 0.056;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(4.0, 0.0) * texel) * 0.024;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(5.0, 0.0) * texel) * 0.008;
-    color += textureSample(input_texture, input_sampler, in.uv + vec2<f32>(6.0, 0.0) * texel) * 0.002;
-
-    return color;
-}
+// (Moved to `bloom.wgsl`.)
+//
 
 // ============================================================
 // LCD Subpixel Pass: Simulate RGB subpixel rendering
@@ -355,13 +321,5 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 // Bloom Combine Pass: Add bloom result back onto original.
 // HDR output — to be followed by tonemap_fs in PostProcess.
 // ============================================================
-@fragment
-fn bloom_combine_fs(in: VertexOutput) -> @location(0) vec4<f32> {
-    let original = textureSample(input_texture, input_sampler, in.uv);
-    let bloom = textureSample(bloom_texture, bloom_sampler, in.uv);
+// (Moved to `bloom.wgsl`.)
 
-    // Bloom intensity multiplier (matches the 0.8 threshold in bloom_threshold_fs)
-    let bloom_intensity = 0.6;
-
-    return vec4<f32>(original.rgb + bloom.rgb * bloom_intensity, original.a);
-}

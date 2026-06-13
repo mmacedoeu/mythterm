@@ -175,7 +175,7 @@ impl BloomRenderer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Bloom Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("postprocess.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("bloom.wgsl").into()),
         });
 
         // Threshold + blur write to the HDR mip chain (Rgba16Float).
