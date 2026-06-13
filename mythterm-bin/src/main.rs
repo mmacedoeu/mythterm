@@ -772,11 +772,84 @@ impl MythtermApp {
                 ..egui::Frame::default()
             })
             .show(&egui.egui_ctx, |ui| {
+            // "Light from the right" gradient overlay: a subtle horizontal
+            // gradient that brightens and blue-tints the right side of the
+            // terminal background, matching the goal mockup. Drawn as a
+            // mesh with per-vertex colors so it sits on top of the panel
+            // fill but below the terminal text.
+            if settings.cinematic.window_light_from_right
+                && settings.cinematic.window_light_from_right_strength > 0.0
+            {
+                let panel_rect = ui.max_rect();
+                let strength = settings.cinematic.window_light_from_right_strength.clamp(0.0, 1.0);
+                // Work in authored sRGB space (0..255) so the gradient is
+                // authored directly, then convert to display space at the end.
+                let bg_r = settings.color_scheme.background[0] as f32;
+                let bg_g = settings.color_scheme.background[1] as f32;
+                let bg_b = settings.color_scheme.background[2] as f32;
+                let glow_r = settings.cinematic.window_border_glow[0] as f32;
+                let glow_g = settings.cinematic.window_border_glow[1] as f32;
+                let glow_b = settings.cinematic.window_border_glow[2] as f32;
+                // Right side: blend background with the border glow color
+                // (additive bias toward cyan/blue) and a small extra
+                // brightness boost so the right side reads as "lit".
+                let blend = strength * 0.18;
+                let boost = 14.0 * strength;
+                let right_r = (bg_r * (1.0 - blend) + glow_r * blend).clamp(0.0, 255.0);
+                let right_g = (bg_g * (1.0 - blend) + glow_g * blend + boost * 0.4).clamp(0.0, 255.0);
+                let right_b = (bg_b * (1.0 - blend) + glow_b * blend + boost).clamp(0.0, 255.0);
+                let right_c = srgb_to_display_color32(egui::Color32::from_rgb(
+                    right_r as u8, right_g as u8, right_b as u8,
+                ));
+                let left_disp = srgb_to_display_color32(egui::Color32::from_rgb(
+                    bg_r as u8, bg_g as u8, bg_b as u8,
+                ));
+
+                let mut mesh = egui::Mesh::default();
+                mesh.vertices.reserve(4);
+                mesh.indices.reserve(6);
+                let uv = egui::Pos2::ZERO;
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: panel_rect.left_top(),
+                    color: left_disp,
+                    uv,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: panel_rect.right_top(),
+                    color: right_c,
+                    uv,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: panel_rect.left_bottom(),
+                    color: left_disp,
+                    uv,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: panel_rect.right_bottom(),
+                    color: right_c,
+                    uv,
+                });
+                mesh.indices.extend_from_slice(&[0, 1, 2, 1, 3, 2]);
+                ui.painter().add(egui::Shape::mesh(mesh));
+            }
+
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let colored_lines = pane.get_colored_lines();
                     let cursor = pane.get_cursor_position();
 
+                    // When the "light from the right" gradient is
+                    // enabled, the terminal widget's own opaque background
+                    // would cover the gradient mesh, so we force the widget
+                    // to render with a transparent background and let the
+                    // gradient (drawn earlier in this callback) show through.
+                    let widget_bg_opacity = if settings.cinematic.window_light_from_right
+                        && settings.cinematic.window_light_from_right_strength > 0.0
+                    {
+                        0.0
+                    } else {
+                        self.bg_opacity
+                    };
                     let widget = TerminalWidget::with_colored_content(
                         colored_lines,
                         self.metrics.cell_width,
@@ -784,7 +857,7 @@ impl MythtermApp {
                     )
                     .bg_color(panel_bg)
                     .cursor(cursor.0, cursor.1)
-                    .bg_opacity(self.bg_opacity);
+                    .bg_opacity(widget_bg_opacity);
                     ui.add(widget);
                 }
             }

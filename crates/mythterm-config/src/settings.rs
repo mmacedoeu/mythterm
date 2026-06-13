@@ -53,6 +53,14 @@ pub struct CinematicSettings {
     /// Window border glow width in pixels.
     /// 0.0 = no border. Default: 1.5.
     pub window_border_glow_width: f32,
+    /// Enable the "light from the right" gradient overlay on the
+    /// terminal background. Subtle horizontal gradient: dark on the
+    /// left, slightly brighter cyan-tinted on the right.
+    /// Default: true.
+    pub window_light_from_right: bool,
+    /// Strength of the right-side light (0.0 = no gradient, 1.0 = strong).
+    /// Default: 0.35 — subtle but visible.
+    pub window_light_from_right_strength: f32,
 }
 
 impl Default for CinematicSettings {
@@ -74,6 +82,8 @@ impl Default for CinematicSettings {
             window_corner_radius: 10.0,
             window_border_glow: [96, 188, 232],
             window_border_glow_width: 1.5,
+            window_light_from_right: true,
+            window_light_from_right_strength: 0.35,
         }
     }
 }
