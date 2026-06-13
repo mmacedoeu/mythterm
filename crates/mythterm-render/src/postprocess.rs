@@ -23,6 +23,34 @@
 
 use wgpu::{Device, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
+/// Shared screen-curvature parameters (mirrors the WGSL `CurvatureParams`).
+///
+/// 16 bytes — keep this layout in sync with the WGSL. The curvature
+/// is applied as a UV barrel distortion in the shared vertex shader,
+/// so it is a single screen-wide setting shared by every post-process
+/// pass (LCD, glass, tonemap).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CurvatureParams {
+    /// 0..1: barrel-distortion strength. 0.0 = flat, 0.05 = subtle, 0.1 = strong.
+    pub strength: f32,
+    /// 16-byte alignment pads.
+    pub _pad0: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
+}
+
+impl Default for CurvatureParams {
+    fn default() -> Self {
+        Self {
+            strength: 0.05,
+            _pad0: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
+        }
+    }
+}
+
 /// LCD subpixel pass parameters (mirrors the WGSL `LcdParams` struct).
 ///
 /// 16 bytes — keep this layout in sync with the WGSL.
@@ -164,6 +192,12 @@ pub struct PostProcess {
     /// Uniform buffer holding [`TonemapParams`].
     tonemap_uniform_buffer: wgpu::Buffer,
 
+    /// Shared uniform buffer holding [`CurvatureParams`].
+    /// Bound at @group(0) @binding(3) in every pass's bind group, so
+    /// the vertex shader can apply the same barrel distortion to the
+    /// UVs of the LCD, glass, and tonemap passes.
+    curvature_uniform_buffer: wgpu::Buffer,
+
     /// Current scene width.
     width: u32,
     /// Current scene height.
@@ -185,6 +219,13 @@ impl PostProcess {
         let (tonemap_bind_group_layout, tonemap_pipeline, tonemap_uniform_buffer) =
             Self::create_tonemap_pipeline(device, output_format, &sampler);
 
+        let curvature_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Curvature Uniform Buffer"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         Self {
             scene_a_texture,
             scene_a_view,
@@ -205,6 +246,7 @@ impl PostProcess {
             tonemap_pipeline,
             tonemap_bind_group_layout,
             tonemap_uniform_buffer,
+            curvature_uniform_buffer,
             width,
             height,
         }
@@ -294,6 +336,13 @@ impl PostProcess {
         queue.write_buffer(&self.tonemap_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
     }
 
+    /// Update the shared screen-curvature parameters. Applied to the
+    /// UVs in the shared vertex shader, so all post-process passes
+    /// (LCD, glass, tonemap) see curved content.
+    pub fn set_curvature_params(&self, queue: &wgpu::Queue, params: CurvatureParams) {
+        queue.write_buffer(&self.curvature_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
+    }
+
     /// Run the LCD subpixel + glass cover + tonemap passes.
     ///
     /// Reads from scene_a (typically written by bloom), runs the
@@ -316,6 +365,10 @@ impl PostProcess {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.lcd_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.curvature_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -360,6 +413,10 @@ impl PostProcess {
                     binding: 2,
                     resource: self.glass_uniform_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.curvature_uniform_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -402,6 +459,10 @@ impl PostProcess {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.tonemap_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.curvature_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -510,6 +571,16 @@ impl PostProcess {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(16),
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -593,6 +664,16 @@ impl PostProcess {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(32),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(16),
                     },
                     count: None,
                 },
@@ -680,6 +761,16 @@ impl PostProcess {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: wgpu::BufferSize::new(32),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(16),
                     },
                     count: None,
                 },

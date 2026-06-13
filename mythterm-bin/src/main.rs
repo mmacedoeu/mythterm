@@ -323,7 +323,16 @@ impl ApplicationHandler for MythtermApp {
         {
             let s = self.config.get_settings();
             let cinematic = &s.cinematic;
-            use mythterm_render::GlassParams;
+            use mythterm_render::{CurvatureParams, GlassParams};
+            post.set_curvature_params(
+                &queue,
+                CurvatureParams {
+                    strength: cinematic.screen_curvature,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                    _pad2: 0.0,
+                },
+            );
             post.set_glass_params(
                 &queue,
                 GlassParams {

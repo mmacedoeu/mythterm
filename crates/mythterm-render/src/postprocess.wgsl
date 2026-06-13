@@ -19,16 +19,52 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
 };
 
-// Full-screen triangle (no vertex buffer needed)
+// Full-screen triangle (no vertex buffer needed).
+// The vertex shader applies an optional screen-curvature barrel
+// distortion to the UV, so all post-process passes automatically
+// see curved content. With `u_curvature.strength = 0.0` the
+// vertex shader is a no-op and we get a flat screen.
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let x = f32(i32(vertex_index) / 2) * 4.0 - 1.0;
     let y = f32(i32(vertex_index) % 2) * 4.0 - 1.0;
     out.position = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+    let uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+
+    // Barrel distortion: r2-based radial outward warp. At the
+    // center of the screen, r2=0, no distortion. At the corners,
+    // r2=2, so the UV is shifted outward by ~2*strength*centered.
+    let centered = uv * 2.0 - 1.0;
+    let r2 = dot(centered, centered);
+    let warped = centered * (1.0 + r2 * u_curvature.strength);
+    out.uv = warped * 0.5 + 0.5;
     return out;
 }
+
+// ============================================================
+// Screen Curvature (shared by all post-process passes)
+// ============================================================
+//
+// Applied in the shared vertex shader (`vs_main`) as a UV
+// barrel distortion. All three passes (LCD, glass, tonemap) read
+// the same uniform — the screen has a single curvature, not a
+// per-pass curvature.
+//
+// The WGSL struct is 16 bytes (vec4 in uniforms is 16 bytes, so
+// the rust struct should also be 16 bytes for ABI compatibility).
+
+struct CurvatureParams {
+    /// 0..1: barrel-distortion strength.
+    /// 0.0 = flat screen, 0.05 = subtle curve, 0.1 = noticeable.
+    strength: f32,
+    /// 16-byte alignment pads.
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+
+@group(0) @binding(3) var<uniform> u_curvature: CurvatureParams;
 
 // ============================================================
 // ACES Tonemapping

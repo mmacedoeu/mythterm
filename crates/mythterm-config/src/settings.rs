@@ -41,6 +41,9 @@ pub struct CinematicSettings {
     /// Glass ceiling reflection color (RGB, 0..1 each).
     /// Default: warm white (1.0, 0.97, 0.92).
     pub glass_ceiling_color: [f32; 3],
+    /// Screen curvature (barrel distortion in the shared vertex shader).
+    /// 0.0 = flat, 0.05 = subtle curve, 0.1 = noticeable. Default: 0.05.
+    pub screen_curvature: f32,
 }
 
 impl Default for CinematicSettings {
@@ -58,6 +61,7 @@ impl Default for CinematicSettings {
             glass_fresnel_bias: 0.04,
             glass_top_falloff: 3.0,
             glass_ceiling_color: [1.0, 0.97, 0.92],
+            screen_curvature: 0.05,
         }
     }
 }

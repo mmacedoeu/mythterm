@@ -11,6 +11,6 @@ pub mod render_target;
 pub mod renderer;
 
 pub use bloom::BloomRenderer;
-pub use postprocess::{GlassParams, LcdParams, PostProcess, TonemapParams};
+pub use postprocess::{CurvatureParams, GlassParams, LcdParams, PostProcess, TonemapParams};
 pub use render_target::RenderTarget;
 pub use renderer::TerminalRenderer;
