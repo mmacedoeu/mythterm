@@ -14,6 +14,18 @@ pub struct CinematicSettings {
     pub lcd_subpixel_width: f32,
     /// LCD scanline modulation (0.0 = off, 1.0 = full scanline).
     pub lcd_scanline: f32,
+    /// Corner vignette strength (0.0 = off, 1.0 = strong).
+    /// Default: 0.25 — subtle corner darkening.
+    pub vignette: f32,
+    /// Edge lighting intensity (backlight bleed halo at screen edges).
+    /// Default: 0.15 — subtle warm glow near the perimeter.
+    pub edge_intensity: f32,
+    /// Edge lighting width as a fraction of the screen edge.
+    /// Default: 0.04 — halo extends ~4% inward from the edge.
+    pub edge_width: f32,
+    /// Edge lighting color (RGB, 0..1 each).
+    /// Default: warm white (1.0, 0.85, 0.65) — like an incandescent backlight.
+    pub edge_color: [f32; 3],
 }
 
 impl Default for CinematicSettings {
@@ -22,6 +34,10 @@ impl Default for CinematicSettings {
             lcd_strength: 0.35,
             lcd_subpixel_width: 0.33,
             lcd_scanline: 0.0,
+            vignette: 0.25,
+            edge_intensity: 0.15,
+            edge_width: 0.04,
+            edge_color: [1.0, 0.85, 0.65],
         }
     }
 }

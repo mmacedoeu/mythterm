@@ -49,6 +49,40 @@ impl Default for LcdParams {
     }
 }
 
+/// Tonemap pass parameters (mirrors the WGSL `TonemapParams` struct).
+///
+/// 32 bytes — keep this layout in sync with the WGSL. The
+/// `edge_color` is a `[f32; 4]` because the WGSL `vec3<f32>` in
+/// uniform space is 16 bytes (4-byte alignment, 16-byte size); the
+/// shader uses `.rgb`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TonemapParams {
+    /// 0..1: vignette strength (corner darkening).
+    pub vignette: f32,
+    /// 0..1: edge-light intensity (backlight bleed halo).
+    pub edge_intensity: f32,
+    /// Width of the edge halo as a fraction of the screen edge.
+    /// 0.05 = 5% from the edge inward, 0.0 disables.
+    pub edge_width: f32,
+    /// 16-byte alignment pad.
+    pub _pad0: f32,
+    /// Edge halo color (typically warm white). RGB used.
+    pub edge_color: [f32; 4],
+}
+
+impl Default for TonemapParams {
+    fn default() -> Self {
+        Self {
+            vignette: 0.25,
+            edge_intensity: 0.15,
+            edge_width: 0.04,
+            _pad0: 0.0,
+            edge_color: [1.0, 0.85, 0.65, 0.0], // warm white
+        }
+    }
+}
+
 /// Post-processing pipeline.
 ///
 /// Holds two HDR scene textures (the working surface for the post
@@ -75,10 +109,12 @@ pub struct PostProcess {
     /// Uniform buffer holding [`LcdParams`].
     lcd_uniform_buffer: wgpu::Buffer,
 
-    /// Tonemap (ACES + vignette) pipeline.
+    /// Tonemap (ACES + vignette + edge lighting) pipeline.
     tonemap_pipeline: wgpu::RenderPipeline,
     /// Bind group layout for the tonemap pass.
     tonemap_bind_group_layout: wgpu::BindGroupLayout,
+    /// Uniform buffer holding [`TonemapParams`].
+    tonemap_uniform_buffer: wgpu::Buffer,
 
     /// Current scene width.
     width: u32,
@@ -96,7 +132,8 @@ impl PostProcess {
             Self::create_scenes(device, width, height);
         let (lcd_bind_group_layout, lcd_pipeline, lcd_uniform_buffer) =
             Self::create_lcd_pipeline(device, &sampler);
-        let (tonemap_bind_group_layout, tonemap_pipeline) = Self::create_tonemap_pipeline(device, output_format);
+        let (tonemap_bind_group_layout, tonemap_pipeline, tonemap_uniform_buffer) =
+            Self::create_tonemap_pipeline(device, output_format, &sampler);
 
         Self {
             scene_a_texture,
@@ -111,6 +148,7 @@ impl PostProcess {
             lcd_uniform_buffer,
             tonemap_pipeline,
             tonemap_bind_group_layout,
+            tonemap_uniform_buffer,
             width,
             height,
         }
@@ -174,6 +212,11 @@ impl PostProcess {
         queue.write_buffer(&self.lcd_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
     }
 
+    /// Update the tonemap pass parameters (vignette + edge lighting).
+    pub fn set_tonemap_params(&self, queue: &wgpu::Queue, params: TonemapParams) {
+        queue.write_buffer(&self.tonemap_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
+    }
+
     /// Run the LCD subpixel + tonemap passes.
     ///
     /// Reads from scene_a (typically written by bloom), applies the
@@ -234,6 +277,10 @@ impl PostProcess {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.tonemap_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -394,7 +441,8 @@ impl PostProcess {
     fn create_tonemap_pipeline(
         device: &Device,
         output_format: TextureFormat,
-    ) -> (wgpu::BindGroupLayout, wgpu::RenderPipeline) {
+        _sampler: &wgpu::Sampler,
+    ) -> (wgpu::BindGroupLayout, wgpu::RenderPipeline, wgpu::Buffer) {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Tonemap Bind Group Layout"),
             entries: &[
@@ -412,6 +460,16 @@ impl PostProcess {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(32),
+                    },
                     count: None,
                 },
             ],
@@ -457,6 +515,13 @@ impl PostProcess {
             cache: None,
         });
 
-        (bind_group_layout, tonemap_pipeline)
+        let tonemap_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Tonemap Uniform Buffer"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        (bind_group_layout, tonemap_pipeline, tonemap_uniform_buffer)
     }
 }

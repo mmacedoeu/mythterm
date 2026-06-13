@@ -149,21 +149,53 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// Tonemap Pass: Filmic ACES tonemapping + vignette
+// Tonemap Pass: Filmic ACES tonemapping + vignette + edge lighting
 // ============================================================
+//
+// All three effects are display-space (post-tonemap), so they live
+// in a single fragment shader to avoid an extra full-resolution
+// scene texture. The cost is a few extra ALU ops per fragment.
+
+@group(0) @binding(2)
+var<uniform> u_tonemap: TonemapParams;
+
+struct TonemapParams {
+    /// 0..1: vignette strength (corner darkening).
+    vignette: f32,
+    /// 0..1: edge-light intensity (backlight bleed halo).
+    edge_intensity: f32,
+    /// Width of the edge halo as a fraction of the screen edge.
+    /// 0.05 = 5% from the edge inward, 0.0 disables.
+    edge_width: f32,
+    /// 16-byte alignment pad.
+    _pad0: f32,
+    /// Edge halo color (typically warm white). RGB used, A ignored.
+    /// vec4 in uniform is 16 bytes, so the struct is 32 bytes total
+    /// — matches the Rust `TonemapParams` with `[f32; 4]` for the color.
+    edge_color: vec4<f32>,
+}
+
 @fragment
 fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(input_texture, input_sampler, in.uv);
 
-    // Apply ACES tonemapping
+    // Filmic ACES tonemapping
     let mapped = aces(color.rgb);
 
-    // Slight vignette effect
+    // Corner vignette
     let center = vec2<f32>(0.5, 0.5);
     let dist = distance(in.uv, center);
-    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.25;
+    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * u_tonemap.vignette;
 
-    return vec4<f32>(mapped * vignette, color.a);
+    // Edge lighting: warm halo near the screen perimeter, simulating
+    // backlight bleed on a premium edge-lit LCD / OLED display.
+    let dist_from_edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));
+    let edge = 1.0 - smoothstep(0.0, u_tonemap.edge_width, dist_from_edge);
+    let edge_contrib = edge * u_tonemap.edge_intensity * u_tonemap.edge_color.rgb;
+
+    let lit = mapped * vignette + edge_contrib;
+
+    return vec4<f32>(lit, color.a);
 }
 
 // ============================================================

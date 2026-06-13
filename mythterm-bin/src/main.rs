@@ -16,7 +16,7 @@ use mythterm_mux::domain::{Domain, LocalDomain};
 use mythterm_mux::pane::PaneId;
 use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
-use mythterm_render::{BloomRenderer, LcdParams, PostProcess, RenderTarget};
+use mythterm_render::{BloomRenderer, LcdParams, PostProcess, RenderTarget, TonemapParams};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -319,17 +319,24 @@ impl ApplicationHandler for MythtermApp {
         // tonemap chain) and writes the final sRGB-ready result to
         // the swapchain.
         let post = PostProcess::new(&device, surface_format, rt_width, rt_height);
-        // Apply LCD subpixel pass parameters from config.
-        let lcd = {
+        // Apply LCD subpixel + tonemap pass parameters from config.
+        {
             let s = self.config.get_settings();
-            LcdParams {
+            post.set_lcd_params(&queue, LcdParams {
                 strength: s.cinematic.lcd_strength,
                 subpixel_width: s.cinematic.lcd_subpixel_width,
                 scanline: s.cinematic.lcd_scanline,
                 _pad: 0.0,
-            }
-        };
-        post.set_lcd_params(&queue, lcd);
+            });
+            let ec = s.cinematic.edge_color;
+            post.set_tonemap_params(&queue, TonemapParams {
+                vignette: s.cinematic.vignette,
+                edge_intensity: s.cinematic.edge_intensity,
+                edge_width: s.cinematic.edge_width,
+                _pad0: 0.0,
+                edge_color: [ec[0], ec[1], ec[2], 0.0],
+            });
+        }
         self.post_process = Some(post);
 
         // Create egui renderer for the render target format (HDR)
