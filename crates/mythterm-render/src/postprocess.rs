@@ -9,15 +9,17 @@
 //!
 //! ```text
 //! bloom (or any scene pass)  →  scene_a  (HDR, sampled by LCD)
-//! LCD subpixel pass           →  scene_b  (HDR, sampled by tonemap)
+//! LCD subpixel pass           →  scene_b  (HDR, sampled by glass)
+//! Glass cover pass            →  scene_c  (HDR, sampled by tonemap)
 //! Tonemap pass                →  swapchain
 //! ```
 //!
-//! Future scene passes (curved display mesh, glass, reflections, edge
-//! lighting) are expected to chain in by reading from / writing to
-//! the scene textures exposed via [`PostProcess::scene_view`] and
-//! [`PostProcess::scene_b_view`], or by inserting between the LCD and
-//! tonemap passes.
+//! Future scene passes (curved display mesh, reflections, edge
+//! lighting as a stand-alone pass) are expected to chain in by
+//! reading from / writing to the scene textures exposed via
+//! [`PostProcess::scene_view`], [`PostProcess::scene_b_view`], and
+//! [`PostProcess::scene_c_view`], or by inserting between the
+//! glass and tonemap passes.
 
 use wgpu::{Device, Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
@@ -71,6 +73,28 @@ pub struct TonemapParams {
     pub edge_color: [f32; 4],
 }
 
+/// Glass cover pass parameters (mirrors the WGSL `GlassParams` struct).
+///
+/// 32 bytes — keep this layout in sync with the WGSL. The
+/// `ceiling_color` is a `[f32; 4]` for the same reason as
+/// `TonemapParams::edge_color`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GlassParams {
+    /// 0..1: overall reflection intensity.
+    pub intensity: f32,
+    /// 0..1: Fresnel F0 (reflection at normal incidence).
+    /// 0.04 is the physical value for glass.
+    pub fresnel_bias: f32,
+    /// Exponent on the top-gradient falloff. Higher = more localized
+    /// at the very top of the screen.
+    pub top_falloff: f32,
+    /// 16-byte alignment pad.
+    pub _pad0: f32,
+    /// Ceiling reflection color (RGB, warm white by default).
+    pub ceiling_color: [f32; 4],
+}
+
 impl Default for TonemapParams {
     fn default() -> Self {
         Self {
@@ -79,6 +103,18 @@ impl Default for TonemapParams {
             edge_intensity: 0.15,
             edge_width: 0.04,
             edge_color: [1.0, 0.85, 0.65, 0.0], // warm white
+        }
+    }
+}
+
+impl Default for GlassParams {
+    fn default() -> Self {
+        Self {
+            intensity: 0.18,
+            fresnel_bias: 0.04, // physical value for glass
+            top_falloff: 3.0,
+            _pad0: 0.0,
+            ceiling_color: [1.0, 0.97, 0.92, 0.0], // warm white
         }
     }
 }
@@ -94,10 +130,15 @@ pub struct PostProcess {
     scene_a_view: wgpu::TextureView,
     scene_a_sample_view: wgpu::TextureView,
 
-    /// Second HDR scene texture: LCD writes here, tonemap reads from here.
+    /// Second HDR scene texture: LCD writes here, glass reads from here.
     scene_b_texture: wgpu::Texture,
     scene_b_view: wgpu::TextureView,
     scene_b_sample_view: wgpu::TextureView,
+
+    /// Third HDR scene texture: glass writes here, tonemap reads from here.
+    scene_c_texture: wgpu::Texture,
+    scene_c_view: wgpu::TextureView,
+    scene_c_sample_view: wgpu::TextureView,
 
     /// Shared sampler for scene_a → LCD read.
     sampler: wgpu::Sampler,
@@ -108,6 +149,13 @@ pub struct PostProcess {
     lcd_bind_group_layout: wgpu::BindGroupLayout,
     /// Uniform buffer holding [`LcdParams`].
     lcd_uniform_buffer: wgpu::Buffer,
+
+    /// Glass cover pipeline.
+    glass_pipeline: wgpu::RenderPipeline,
+    /// Bind group layout for the glass pass.
+    glass_bind_group_layout: wgpu::BindGroupLayout,
+    /// Uniform buffer holding [`GlassParams`].
+    glass_uniform_buffer: wgpu::Buffer,
 
     /// Tonemap (ACES + vignette + edge lighting) pipeline.
     tonemap_pipeline: wgpu::RenderPipeline,
@@ -128,10 +176,12 @@ impl PostProcess {
     /// `output_format` is the format of the swapchain (e.g.
     /// `Bgra8UnormSrgb`). The tonemap pass writes into it.
     pub fn new(device: &Device, output_format: TextureFormat, width: u32, height: u32) -> Self {
-        let (scene_a_texture, scene_a_view, scene_a_sample_view, scene_b_texture, scene_b_view, scene_b_sample_view, sampler) =
+        let (scene_a_texture, scene_a_view, scene_a_sample_view, scene_b_texture, scene_b_view, scene_b_sample_view, scene_c_texture, scene_c_view, scene_c_sample_view, sampler) =
             Self::create_scenes(device, width, height);
         let (lcd_bind_group_layout, lcd_pipeline, lcd_uniform_buffer) =
             Self::create_lcd_pipeline(device, &sampler);
+        let (glass_bind_group_layout, glass_pipeline, glass_uniform_buffer) =
+            Self::create_glass_pipeline(device, &sampler);
         let (tonemap_bind_group_layout, tonemap_pipeline, tonemap_uniform_buffer) =
             Self::create_tonemap_pipeline(device, output_format, &sampler);
 
@@ -142,10 +192,16 @@ impl PostProcess {
             scene_b_texture,
             scene_b_view,
             scene_b_sample_view,
+            scene_c_texture,
+            scene_c_view,
+            scene_c_sample_view,
             sampler,
             lcd_pipeline,
             lcd_bind_group_layout,
             lcd_uniform_buffer,
+            glass_pipeline,
+            glass_bind_group_layout,
+            glass_uniform_buffer,
             tonemap_pipeline,
             tonemap_bind_group_layout,
             tonemap_uniform_buffer,
@@ -161,7 +217,7 @@ impl PostProcess {
         }
         self.width = width;
         self.height = height;
-        let (a_tex, a_view, a_sample_view, b_tex, b_view, b_sample_view, sampler) =
+        let (a_tex, a_view, a_sample_view, b_tex, b_view, b_sample_view, c_tex, c_view, c_sample_view, sampler) =
             Self::create_scenes(device, width, height);
         self.scene_a_texture = a_tex;
         self.scene_a_view = a_view;
@@ -169,6 +225,9 @@ impl PostProcess {
         self.scene_b_texture = b_tex;
         self.scene_b_view = b_view;
         self.scene_b_sample_view = b_sample_view;
+        self.scene_c_texture = c_tex;
+        self.scene_c_view = c_view;
+        self.scene_c_sample_view = c_sample_view;
         self.sampler = sampler;
     }
 
@@ -186,7 +245,7 @@ impl PostProcess {
 
     /// View of the second HDR scene texture (LCD output), for use
     /// as a render attachment by any future pass inserted between
-    /// the LCD and the tonemap.
+    /// the LCD and the glass.
     pub fn scene_b_view(&self) -> &wgpu::TextureView {
         &self.scene_b_view
     }
@@ -195,6 +254,19 @@ impl PostProcess {
     /// a sampled binding.
     pub fn scene_b_sample_view(&self) -> &wgpu::TextureView {
         &self.scene_b_sample_view
+    }
+
+    /// View of the third HDR scene texture (glass output), for use
+    /// as a render attachment by any future pass inserted between
+    /// the glass and the tonemap.
+    pub fn scene_c_view(&self) -> &wgpu::TextureView {
+        &self.scene_c_view
+    }
+
+    /// View of the third HDR scene texture (glass output), for use as
+    /// a sampled binding.
+    pub fn scene_c_sample_view(&self) -> &wgpu::TextureView {
+        &self.scene_c_sample_view
     }
 
     /// Current scene width.
@@ -212,15 +284,21 @@ impl PostProcess {
         queue.write_buffer(&self.lcd_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
     }
 
+    /// Update the glass cover pass parameters.
+    pub fn set_glass_params(&self, queue: &wgpu::Queue, params: GlassParams) {
+        queue.write_buffer(&self.glass_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
+    }
+
     /// Update the tonemap pass parameters (vignette + edge lighting).
     pub fn set_tonemap_params(&self, queue: &wgpu::Queue, params: TonemapParams) {
         queue.write_buffer(&self.tonemap_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
     }
 
-    /// Run the LCD subpixel + tonemap passes.
+    /// Run the LCD subpixel + glass cover + tonemap passes.
     ///
-    /// Reads from scene_a (typically written by bloom), applies the
-    /// LCD subpixel effect, then tonemaps the result to `output_view`.
+    /// Reads from scene_a (typically written by bloom), runs the
+    /// LCD pass → scene_b, then the glass pass → scene_c, then
+    /// tonemaps scene_c to `output_view`.
     pub fn render(&self, device: &Device, encoder: &mut wgpu::CommandEncoder, output_view: &wgpu::TextureView) {
         // LCD pass: scene_a → scene_b
         let lcd_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -265,14 +343,57 @@ impl PostProcess {
             rpass.draw(0..3, 0..1);
         }
 
-        // Tonemap pass: scene_b → swapchain
+        // Glass cover pass: scene_b → scene_c
+        let glass_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Glass Input"),
+            layout: &self.glass_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.scene_b_sample_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.glass_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("PostProcess: Glass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_c_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            }).forget_lifetime();
+
+            rpass.set_pipeline(&self.glass_pipeline);
+            rpass.set_bind_group(0, &glass_bind_group, &[]);
+            rpass.draw(0..3, 0..1);
+        }
+
+        // Tonemap pass: scene_c → swapchain
         let tonemap_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Tonemap Input"),
             layout: &self.tonemap_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.scene_b_sample_view),
+                    resource: wgpu::BindingResource::TextureView(&self.scene_c_sample_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -318,17 +439,21 @@ impl PostProcess {
         wgpu::Texture,
         wgpu::TextureView,
         wgpu::TextureView,
+        wgpu::Texture,
+        wgpu::TextureView,
+        wgpu::TextureView,
         wgpu::Sampler,
     ) {
         let a = Self::create_scene(device, "PostProcess Scene A", width, height);
         let b = Self::create_scene(device, "PostProcess Scene B", width, height);
+        let c = Self::create_scene(device, "PostProcess Scene C", width, height);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("PostProcess Scene Sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        (a.0, a.1, a.2, b.0, b.1, b.2, sampler)
+        (a.0, a.1, a.2, b.0, b.1, b.2, c.0, c.1, c.2, sampler)
     }
 
     fn create_scene(
@@ -436,6 +561,92 @@ impl PostProcess {
         });
 
         (bind_group_layout, lcd_pipeline, lcd_uniform_buffer)
+    }
+
+    fn create_glass_pipeline(
+        device: &Device,
+        _sampler: &wgpu::Sampler,
+    ) -> (wgpu::BindGroupLayout, wgpu::RenderPipeline, wgpu::Buffer) {
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Glass Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(32),
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Glass Pipeline Layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("PostProcess Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("postprocess.wgsl").into()),
+        });
+
+        let glass_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("PostProcess Pipeline: glass_fs"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("glass_fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: TextureFormat::Rgba16Float,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let glass_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Glass Uniform Buffer"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        (bind_group_layout, glass_pipeline, glass_uniform_buffer)
     }
 
     fn create_tonemap_pipeline(

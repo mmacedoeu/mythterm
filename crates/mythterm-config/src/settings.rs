@@ -29,6 +29,18 @@ pub struct CinematicSettings {
     /// Micro-contrast strength (S-curve applied to the tonemapped color).
     /// 0.0 = off, 1.0 = full smoothstep S-curve. Default: 0.15 — subtle.
     pub micro_contrast: f32,
+    /// Glass cover reflection intensity.
+    /// 0.0 = off, 1.0 = strong glass reflection. Default: 0.18.
+    pub glass_intensity: f32,
+    /// Glass Fresnel F0 (reflection at normal incidence).
+    /// 0.04 is the physical value for glass. Default: 0.04.
+    pub glass_fresnel_bias: f32,
+    /// Glass top-gradient falloff exponent. Higher = more localized
+    /// at the very top of the screen. Default: 3.0.
+    pub glass_top_falloff: f32,
+    /// Glass ceiling reflection color (RGB, 0..1 each).
+    /// Default: warm white (1.0, 0.97, 0.92).
+    pub glass_ceiling_color: [f32; 3],
 }
 
 impl Default for CinematicSettings {
@@ -42,6 +54,10 @@ impl Default for CinematicSettings {
             edge_width: 0.04,
             edge_color: [1.0, 0.85, 0.65],
             micro_contrast: 0.15,
+            glass_intensity: 0.18,
+            glass_fresnel_bias: 0.04,
+            glass_top_falloff: 3.0,
+            glass_ceiling_color: [1.0, 0.97, 0.92],
         }
     }
 }

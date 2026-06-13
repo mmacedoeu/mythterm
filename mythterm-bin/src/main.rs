@@ -322,6 +322,23 @@ impl ApplicationHandler for MythtermApp {
         // Apply LCD subpixel + tonemap pass parameters from config.
         {
             let s = self.config.get_settings();
+            let cinematic = &s.cinematic;
+            use mythterm_render::GlassParams;
+            post.set_glass_params(
+                &queue,
+                GlassParams {
+                    intensity: cinematic.glass_intensity,
+                    fresnel_bias: cinematic.glass_fresnel_bias,
+                    top_falloff: cinematic.glass_top_falloff,
+                    _pad0: 0.0,
+                    ceiling_color: [
+                        cinematic.glass_ceiling_color[0],
+                        cinematic.glass_ceiling_color[1],
+                        cinematic.glass_ceiling_color[2],
+                        1.0,
+                    ],
+                },
+            );
             post.set_lcd_params(&queue, LcdParams {
                 strength: s.cinematic.lcd_strength,
                 subpixel_width: s.cinematic.lcd_subpixel_width,

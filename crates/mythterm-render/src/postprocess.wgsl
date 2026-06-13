@@ -149,6 +149,65 @@ fn lcd_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
+// Glass Cover Pass: Simulate glass cover layer reflection
+// ============================================================
+//
+// Adds a subtle reflection from a procedural environment on top
+// of the LCD output. Models a glass cover layer (like a premium
+// laptop or external display) that has:
+// - A bright ceiling reflection at the top of the screen
+// - A subtle Fresnel brightening at the screen edges
+//
+// The reflection is additively blended with the scene in HDR space,
+// so it's tonemapped together with the rest of the scene. This is
+// a procedural environment (vertical gradient + horizontal sine
+// variation) — a future pass can swap in a real cubemap.
+
+@group(0) @binding(2)
+var<uniform> u_glass: GlassParams;
+
+struct GlassParams {
+    /// 0..1: overall reflection intensity.
+    intensity: f32,
+    /// 0..1: Fresnel F0 (reflection at normal incidence).
+    /// 0.04 is the physical value for glass.
+    fresnel_bias: f32,
+    /// Exponent on the top-gradient falloff. Higher = more localized
+    /// at the very top of the screen.
+    top_falloff: f32,
+    /// 16-byte alignment pad.
+    _pad0: f32,
+    /// Ceiling reflection color (RGB, warm white by default).
+    /// vec4 in uniform is 16 bytes, so the struct is 32 bytes total.
+    ceiling_color: vec4<f32>,
+}
+
+@fragment
+fn glass_fs(in: VertexOutput) -> @location(0) vec4<f32> {
+    let scene = textureSample(input_texture, input_sampler, in.uv);
+
+    // Top gradient: bright at the top, fading toward the bottom.
+    // pow(t, n) gives a non-linear falloff that looks natural.
+    let t = in.uv.y;
+    let ceiling = u_glass.ceiling_color.rgb;
+    let top_refl = ceiling * pow(t, u_glass.top_falloff);
+
+    // Horizontal variation: simulate a strip light or window.
+    // 0.4..1.0 over the screen width — gentle, not distracting.
+    let horiz = 0.7 + 0.3 * sin(in.uv.x * 6.28318);
+    let top_with_var = top_refl * horiz;
+
+    // Edge Fresnel: stronger reflection at screen edges.
+    let dist_from_edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));
+    let edge_factor = 1.0 - clamp(dist_from_edge * 2.0, 0.0, 1.0);
+    let fresnel = u_glass.fresnel_bias + (1.0 - u_glass.fresnel_bias) * edge_factor * edge_factor;
+
+    let reflection = top_with_var * fresnel * u_glass.intensity;
+
+    return vec4<f32>(scene.rgb + reflection, scene.a);
+}
+
+// ============================================================
 // Tonemap Pass: Filmic ACES tonemapping + micro-contrast +
 // vignette + edge lighting
 // ============================================================
