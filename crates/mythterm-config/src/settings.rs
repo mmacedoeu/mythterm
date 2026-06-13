@@ -81,9 +81,9 @@ impl Default for CinematicSettings {
             screen_curvature: 0.05,
             window_corner_radius: 10.0,
             window_border_glow: [96, 188, 232],
-            window_border_glow_width: 2.0,
+            window_border_glow_width: 1.8,
             window_light_from_right: true,
-            window_light_from_right_strength: 0.35,
+            window_light_from_right_strength: 0.22,
         }
     }
 }

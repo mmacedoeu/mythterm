@@ -887,10 +887,8 @@ impl MythtermApp {
                 egui::Stroke::new(settings.cinematic.window_border_glow_width, base_disp),
                 egui::StrokeKind::Inside,
             );
-            // Outer glow: tighter, brighter halo to match the goal's
-            // premium look. The goal has a sharp 2-3px stroke with a
-            // soft glow extending ~5-7px outward, not a wide diffuse blob.
-            for (w_mult, a_mult) in [(1.8, 0.70_f32), (3.0, 0.38), (4.5, 0.16)].iter() {
+            // Outer glow: subtle, soft halo. Goal is restrained.
+            for (w_mult, a_mult) in [(1.8, 0.45_f32), (3.0, 0.22), (5.0, 0.08)].iter() {
                 let glow = egui::Color32::from_rgba_unmultiplied(
                     base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
                 );
