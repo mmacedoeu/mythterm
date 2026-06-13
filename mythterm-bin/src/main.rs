@@ -19,6 +19,7 @@ use mythterm_mux::Mux;
 use mythterm_render::{BloomRenderer, LcdParams, PostProcess, RenderTarget, TonemapParams};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
+use mythterm_ui::srgb_passthrough;
 use mythterm_ui::srgb_to_display_color32;
 use mythterm_ui::tabbar::TabBar;
 use mythterm_ui::terminal_widget::TerminalWidget;
@@ -873,7 +874,7 @@ impl MythtermApp {
                 settings.cinematic.window_border_glow[1],
                 settings.cinematic.window_border_glow[2],
             );
-            let base_disp = srgb_to_display_color32(base);
+            let base_disp = srgb_passthrough(base);
             let fg_layer = egui::LayerId::new(
                 egui::Order::Foreground,
                 egui::Id::new("window_border_glow"),
@@ -892,7 +893,7 @@ impl MythtermApp {
                 let glow = egui::Color32::from_rgba_unmultiplied(
                     base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
                 );
-                let glow_disp = srgb_to_display_color32(glow);
+                let glow_disp = srgb_passthrough(glow);
                 painter.rect_stroke(
                     screen_rect,
                     cr,

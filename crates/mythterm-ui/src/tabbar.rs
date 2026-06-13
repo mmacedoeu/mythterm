@@ -7,7 +7,7 @@
 
 use egui::{Response, Sense, Ui, Vec2, Widget};
 
-use crate::color::srgb_to_display_color32;
+use crate::color::srgb_passthrough;
 
 /// Cinematic theme colors for the tab bar.
 ///
@@ -137,14 +137,14 @@ impl TabBar {
                         ui.painter().rect_filled(
                             shadow_rect,
                             tab_cr,
-                            srgb_to_display_color32(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 55)),
+                            srgb_passthrough(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 55)),
                         );
 
                         // 2. Rounded gradient fill (navy -> near-black).
                         // Top has a subtle cyan-tinted lift for the "glow"
                         // effect, bottom is near-black.
-                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(24, 42, 66));
-                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(9, 14, 22));
+                        let top_c = srgb_passthrough(egui::Color32::from_rgb(24, 42, 66));
+                        let bot_c = srgb_passthrough(egui::Color32::from_rgb(9, 14, 22));
                         let inset = 0.5_f32;
                         let fill_rect = rect.shrink(inset);
                         let fill_cr = egui::CornerRadius::same(11);
@@ -178,7 +178,7 @@ impl TabBar {
                         // 3. Cyan emissive border + multi-layer glow.
                         // Thin visible line + soft bloom, like the goal.
                         let border_rgb = egui::Color32::from_rgb(46, 167, 255);
-                        let border_disp = srgb_to_display_color32(
+                        let border_disp = srgb_passthrough(
                             egui::Color32::from_rgba_unmultiplied(46, 167, 255, 170),
                         );
                         ui.painter().rect_stroke(
@@ -192,7 +192,7 @@ impl TabBar {
                                 border_rgb.r(), border_rgb.g(), border_rgb.b(),
                                 (a_mult * 255.0) as u8,
                             );
-                            let glow_disp = srgb_to_display_color32(glow);
+                            let glow_disp = srgb_passthrough(glow);
                             ui.painter().rect_stroke(
                                 fill_rect,
                                 fill_cr,

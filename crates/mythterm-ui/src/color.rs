@@ -51,6 +51,14 @@ pub fn srgb_to_display_color32(c: egui::Color32) -> egui::Color32 {
     )
 }
 
+/// Passthrough: return the sRGB color unchanged. Use this for UI chrome
+/// (window border, tab fill) where the inverse-pipeline round-trip is
+/// not producing the expected on-screen color in this build.
+#[inline]
+pub fn srgb_passthrough(c: egui::Color32) -> egui::Color32 {
+    c
+}
+
 /// Inverse pipeline for a single 8-bit channel: given an sRGB value
 /// `s` in `[0, 255]`, compute the `u8` that should be stored in a
 /// `Color32` so that the post-process tonemap + sRGB swapchain

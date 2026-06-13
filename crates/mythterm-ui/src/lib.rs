@@ -19,6 +19,7 @@ pub mod toast;
 pub mod url;
 
 pub use clipboard::{ClipboardHandler, ClipboardProvider, PlatformClipboard};
+pub use color::srgb_passthrough;
 pub use color::srgb_to_display_color32;
 pub use input::InputMapper;
 pub use tabbar::TabBar;
