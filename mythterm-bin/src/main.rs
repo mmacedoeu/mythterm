@@ -324,10 +324,9 @@ impl ApplicationHandler for MythtermApp {
             let s = self.config.get_settings();
             let cinematic = &s.cinematic;
             use mythterm_render::{CurvatureParams, GlassParams};
-            // Curvature is shared between bloom and post-process (same
-            // vertex shader), so build the params once and apply to
-            // both. Bloom writes to flat intermediates, so curvature
-            // is a no-op there — but the uniform is still bound.
+            // Curvature is only used by the post-process vertex shader
+            // (`vs_main`); bloom uses its own passthrough vertex shader
+            // (`bloom_vs_main`) since bloom writes to flat intermediates.
             let curvature = CurvatureParams {
                 strength: cinematic.screen_curvature,
                 _pad0: 0.0,
@@ -335,9 +334,6 @@ impl ApplicationHandler for MythtermApp {
                 _pad2: 0.0,
             };
             post.set_curvature_params(&queue, curvature);
-            if let Some(bloom) = self.bloom.as_ref() {
-                bloom.set_curvature_params(&queue, curvature);
-            }
             post.set_glass_params(
                 &queue,
                 GlassParams {

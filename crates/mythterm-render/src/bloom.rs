@@ -43,12 +43,6 @@ pub struct BloomRenderer {
     combine_bind_group_layout: wgpu::BindGroupLayout,
     /// Cached bind groups for each intermediate texture.
     bind_groups: Vec<wgpu::BindGroup>,
-    /// Shared curvature uniform (used by the shared vertex shader's
-    /// barrel distortion in `vs_main`). Bloom writes to a flat
-    /// intermediate so the curvature only matters as a "no-op" on
-    /// the bloom side — but the vertex shader still needs the
-    /// binding to exist in the pipeline layout.
-    curvature_uniform_buffer: wgpu::Buffer,
     /// Current target width (window size, not downsampled).
     width: u32,
     /// Current target height.
@@ -66,15 +60,8 @@ impl BloomRenderer {
         let (bind_group_layout, combine_bind_group_layout, threshold_pipeline, blur_pipeline, combine_pipeline) =
             Self::create_pipelines(device);
 
-        let curvature_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Bloom Curvature Uniform Buffer"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let textures = Self::create_textures(device, width, height);
-        let bind_groups = Self::create_texture_bind_groups(device, &bind_group_layout, &curvature_uniform_buffer, &textures);
+        let bind_groups = Self::create_texture_bind_groups(device, &bind_group_layout, &textures);
 
         Self {
             threshold_pipeline,
@@ -84,7 +71,6 @@ impl BloomRenderer {
             bind_group_layout,
             combine_bind_group_layout,
             bind_groups,
-            curvature_uniform_buffer,
             width,
             height,
         }
@@ -101,16 +87,7 @@ impl BloomRenderer {
         self.width = width;
         self.height = height;
         self.textures = Self::create_textures(device, width, height);
-        self.bind_groups = Self::create_texture_bind_groups(device, &self.bind_group_layout, &self.curvature_uniform_buffer, &self.textures);
-    }
-
-    /// Update the shared screen-curvature parameters used by the
-    /// shared vertex shader in the bloom pipeline. Bloom writes to
-    /// flat intermediates, so curvature is effectively a no-op on
-    /// the bloom side — but the uniform is bound so the vertex
-    /// shader can run.
-    pub fn set_curvature_params(&self, queue: &wgpu::Queue, params: crate::CurvatureParams) {
-        queue.write_buffer(&self.curvature_uniform_buffer, 0, bytemuck::cast_slice(&[params]));
+        self.bind_groups = Self::create_texture_bind_groups(device, &self.bind_group_layout, &self.textures);
     }
 
     fn create_pipelines(
@@ -140,20 +117,6 @@ impl BloomRenderer {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Binding 2: shared screen-curvature uniform (used by the
-                // shared vertex shader). With strength=0 the bloom output
-                // is uncurved; the curvature only matters for the post-
-                // process passes.
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(16),
-                    },
                     count: None,
                 },
             ],
@@ -193,18 +156,6 @@ impl BloomRenderer {
                     binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Binding 4: shared screen-curvature uniform (used by the
-                // shared vertex shader).
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: wgpu::BufferSize::new(16),
-                    },
                     count: None,
                 },
             ],
@@ -260,7 +211,6 @@ impl BloomRenderer {
     fn create_texture_bind_groups(
         device: &Device,
         layout: &wgpu::BindGroupLayout,
-        curvature_buffer: &wgpu::Buffer,
         textures: &[BloomTexture],
     ) -> Vec<wgpu::BindGroup> {
         textures
@@ -277,10 +227,6 @@ impl BloomRenderer {
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(&tex.sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: curvature_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -300,7 +246,7 @@ impl BloomRenderer {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: shader,
-                entry_point: Some("vs_main"),
+                entry_point: Some("bloom_vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
@@ -399,10 +345,6 @@ impl BloomRenderer {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(original_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.curvature_uniform_buffer.as_entire_binding(),
-                },
             ],
         });
 
@@ -496,10 +438,6 @@ impl BloomRenderer {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&self.textures[0].sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.curvature_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
