@@ -7,6 +7,8 @@
 
 use egui::{Response, Sense, Ui, Vec2, Widget};
 
+use crate::color::srgb_to_display_color32;
+
 /// Cinematic theme colors for the tab bar.
 ///
 /// Each color is **pre-converted** from its sRGB-authored value through
@@ -115,7 +117,42 @@ impl TabBar {
                 );
 
                 if ui.is_rect_visible(rect) {
-                    ui.painter().rect_filled(rect, 0.0, bg_color);
+                    if is_active {
+                        // Active tab: vertical blue gradient/glow that
+                        // brightens the top of the tab and fades toward
+                        // the bottom, matching the goal mockup. Drawn as
+                        // a 4-vertex mesh with per-vertex colors.
+                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(28, 40, 58));
+                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(22, 30, 44));
+                        let mut mesh = egui::Mesh::default();
+                        mesh.vertices.reserve(4);
+                        mesh.indices.reserve(6);
+                        let uv = egui::Pos2::ZERO;
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: rect.left_top(),
+                            color: top_c,
+                            uv,
+                        });
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: rect.right_top(),
+                            color: top_c,
+                            uv,
+                        });
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: rect.left_bottom(),
+                            color: bot_c,
+                            uv,
+                        });
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: rect.right_bottom(),
+                            color: bot_c,
+                            uv,
+                        });
+                        mesh.indices.extend_from_slice(&[0, 1, 2, 1, 3, 2]);
+                        ui.painter().add(egui::Shape::mesh(mesh));
+                    } else {
+                        ui.painter().rect_filled(rect, 0.0, bg_color);
+                    }
 
                     // 3px cyan accent along the bottom of the active tab.
                     if is_active {
