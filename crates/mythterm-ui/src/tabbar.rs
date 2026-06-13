@@ -118,50 +118,146 @@ impl TabBar {
 
                 if ui.is_rect_visible(rect) {
                     if is_active {
-                        // Active tab: vertical blue gradient/glow that
-                        // brightens the top of the tab and fades toward
-                        // the bottom, matching the goal mockup. Drawn as
-                        // a 4-vertex mesh with per-vertex colors.
-                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(28, 40, 58));
-                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(22, 30, 44));
+                        // Active tab: full premium treatment matching the
+                        // goal mockup.
+                        //
+                        // Layered recipe (back to front):
+                        //   1. Soft drop shadow behind the tab (elevation).
+                        //   2. Rounded SDF rect with dark navy-to-black
+                        //      vertical gradient fill.
+                        //   3. Cyan emissive 1px border + multi-layer
+                        //      bloom glow.
+                        //   4. Inner top-edge highlight (specular).
+                        //   5. Inner bottom-edge shadow.
+                        //   6. Faint top gloss band (glass reflection).
+                        let tab_cr = egui::CornerRadius::same(12);
+
+                        // 1. Soft drop shadow.
+                        let shadow_rect = rect.translate(egui::vec2(0.0, 3.0));
+                        ui.painter().rect_filled(
+                            shadow_rect,
+                            tab_cr,
+                            srgb_to_display_color32(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 55)),
+                        );
+
+                        // 2. Rounded gradient fill (navy -> near-black).
+                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(22, 36, 55));
+                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(11, 16, 24));
+                        let inset = 0.5_f32;
+                        let fill_rect = rect.shrink(inset);
+                        let fill_cr = egui::CornerRadius::same(11);
                         let mut mesh = egui::Mesh::default();
                         mesh.vertices.reserve(4);
                         mesh.indices.reserve(6);
                         let uv = egui::Pos2::ZERO;
                         mesh.vertices.push(egui::epaint::Vertex {
-                            pos: rect.left_top(),
+                            pos: fill_rect.left_top(),
                             color: top_c,
                             uv,
                         });
                         mesh.vertices.push(egui::epaint::Vertex {
-                            pos: rect.right_top(),
+                            pos: fill_rect.right_top(),
                             color: top_c,
                             uv,
                         });
                         mesh.vertices.push(egui::epaint::Vertex {
-                            pos: rect.left_bottom(),
+                            pos: fill_rect.left_bottom(),
                             color: bot_c,
                             uv,
                         });
                         mesh.vertices.push(egui::epaint::Vertex {
-                            pos: rect.right_bottom(),
+                            pos: fill_rect.right_bottom(),
                             color: bot_c,
                             uv,
                         });
                         mesh.indices.extend_from_slice(&[0, 1, 2, 1, 3, 2]);
                         ui.painter().add(egui::Shape::mesh(mesh));
+
+                        // 3. Cyan emissive border + multi-layer glow.
+                        // Subtle in the goal — just a hint of cyan.
+                        let border_rgb = egui::Color32::from_rgb(46, 167, 255);
+                        let border_disp = srgb_to_display_color32(
+                            egui::Color32::from_rgba_unmultiplied(46, 167, 255, 110),
+                        );
+                        ui.painter().rect_stroke(
+                            fill_rect,
+                            fill_cr,
+                            egui::Stroke::new(1.0, border_disp),
+                            egui::StrokeKind::Inside,
+                        );
+                        for &(w_mult, a_mult) in &[(2.0_f32, 0.18_f32), (4.5, 0.09), (8.0, 0.04)] {
+                            let glow = egui::Color32::from_rgba_unmultiplied(
+                                border_rgb.r(), border_rgb.g(), border_rgb.b(),
+                                (a_mult * 255.0) as u8,
+                            );
+                            let glow_disp = srgb_to_display_color32(glow);
+                            ui.painter().rect_stroke(
+                                fill_rect,
+                                fill_cr,
+                                egui::Stroke::new(w_mult, glow_disp),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+
+                        // 4. Inner top-edge highlight (specular).
+                        let hl = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 22);
+                        let hl_y = fill_rect.min.y + 0.5;
+                        let hl_x_pad = 14.0_f32;
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(fill_rect.min.x + hl_x_pad, hl_y),
+                                egui::pos2(fill_rect.max.x - hl_x_pad, hl_y),
+                            ],
+                            egui::Stroke::new(1.0, hl),
+                        );
+
+                        // 5. Inner bottom-edge shadow.
+                        let sh = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 65);
+                        let sh_y = fill_rect.max.y - 0.5;
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(fill_rect.min.x + hl_x_pad, sh_y),
+                                egui::pos2(fill_rect.max.x - hl_x_pad, sh_y),
+                            ],
+                            egui::Stroke::new(1.0, sh),
+                        );
+
+                        // 6. Faint top gloss band (glass reflection).
+                        let gloss_h = 6.0_f32;
+                        let gloss_rect = egui::Rect::from_min_max(
+                            egui::pos2(fill_rect.min.x + 8.0, fill_rect.min.y + 1.0),
+                            egui::pos2(fill_rect.max.x - 8.0, fill_rect.min.y + 1.0 + gloss_h),
+                        );
+                        // Gradient mesh: white at top, transparent at bottom.
+                        let mut gloss = egui::Mesh::default();
+                        gloss.vertices.reserve(4);
+                        gloss.indices.reserve(6);
+                        let gloss_top = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 28);
+                        let gloss_bot = egui::Color32::from_rgba_unmultiplied(255, 255, 255, 0);
+                        gloss.vertices.push(egui::epaint::Vertex {
+                            pos: gloss_rect.left_top(),
+                            color: gloss_top,
+                            uv,
+                        });
+                        gloss.vertices.push(egui::epaint::Vertex {
+                            pos: gloss_rect.right_top(),
+                            color: gloss_top,
+                            uv,
+                        });
+                        gloss.vertices.push(egui::epaint::Vertex {
+                            pos: gloss_rect.left_bottom(),
+                            color: gloss_bot,
+                            uv,
+                        });
+                        gloss.vertices.push(egui::epaint::Vertex {
+                            pos: gloss_rect.right_bottom(),
+                            color: gloss_bot,
+                            uv,
+                        });
+                        gloss.indices.extend_from_slice(&[0, 1, 2, 1, 3, 2]);
+                        ui.painter().add(egui::Shape::mesh(gloss));
                     } else {
                         ui.painter().rect_filled(rect, 0.0, bg_color);
-                    }
-
-                    // 3px cyan accent along the bottom of the active tab.
-                    if is_active {
-                        let accent_h = 3.0;
-                        let accent_rect = egui::Rect::from_min_max(
-                            egui::pos2(rect.min.x, rect.max.y - accent_h),
-                            rect.max,
-                        );
-                        ui.painter().rect_filled(accent_rect, 0.0, theme::ACCENT);
                     }
 
                     ui.painter().text(
