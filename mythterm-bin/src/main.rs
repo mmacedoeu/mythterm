@@ -615,8 +615,6 @@ impl MythtermApp {
         // through, which reads as a subtle "card" vignette at the
         // corners.
         let chrome_bg = srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28));
-        // The full window area (including OS title bar) — used for the
-        // background fill so the rounded corners match the window shape.
         let screen_rect = egui.egui_ctx.screen_rect();
         let bg_painter = egui.egui_ctx.layer_painter(egui::LayerId::background());
         bg_painter.rect_filled(
@@ -835,46 +833,6 @@ impl MythtermApp {
                 ui.painter().add(egui::Shape::mesh(mesh));
             }
 
-            // Border glow drawn inside the central panel, after the
-            // gradient mesh, so it's guaranteed to be on top of both
-            // the panel fill and the gradient. The rect is offset
-            // by the OS title-bar height so the top border isn't
-            // hidden behind the title bar.
-            if settings.cinematic.window_border_glow_width > 0.0 {
-                let base = egui::Color32::from_rgb(
-                    settings.cinematic.window_border_glow[0],
-                    settings.cinematic.window_border_glow[1],
-                    settings.cinematic.window_border_glow[2],
-                );
-                let base_disp = srgb_to_display_color32(base);
-                let title_bar_h = 12.0_f32;
-                let border_rect = egui::Rect::from_min_max(
-                    egui::pos2(ui.max_rect().min.x, ui.max_rect().min.y + title_bar_h),
-                    ui.max_rect().max,
-                );
-                let cr = egui::CornerRadius::same(corner_radius_u8);
-                // Inner crisp stroke.
-                ui.painter().rect_stroke(
-                    border_rect,
-                    cr,
-                    egui::Stroke::new(settings.cinematic.window_border_glow_width, base_disp),
-                    egui::StrokeKind::Inside,
-                );
-                // Outer glow layers.
-                for (w_mult, a_mult) in [(2.2, 0.85_f32), (3.8, 0.50), (6.0, 0.22)].iter() {
-                    let glow = egui::Color32::from_rgba_unmultiplied(
-                        base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
-                    );
-                    let glow_disp = srgb_to_display_color32(glow);
-                    ui.painter().rect_stroke(
-                        border_rect,
-                        cr,
-                        egui::Stroke::new(settings.cinematic.window_border_glow_width * w_mult, glow_disp),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-            }
-
             if let Some(pane_id) = self.active_pane {
                 if let Some(pane) = self.mux.get_pane(pane_id) {
                     let colored_lines = pane.get_colored_lines();
@@ -905,9 +863,46 @@ impl MythtermApp {
             }
         });
 
-        // Window border glow is now drawn inside the central panel's
-        // show callback (after the gradient mesh) so it's guaranteed
-        // to be on top of the panel fill and gradient.
+        // Window border glow (bright cyan stroke at the window edge).
+        // Drawn last on the foreground layer so it sits ON TOP of the
+        // chrome and central panels. We layer a sharp inner stroke with
+        // several softer outer strokes for a glow effect.
+        if settings.cinematic.window_border_glow_width > 0.0 {
+            let base = egui::Color32::from_rgb(
+                settings.cinematic.window_border_glow[0],
+                settings.cinematic.window_border_glow[1],
+                settings.cinematic.window_border_glow[2],
+            );
+            let base_disp = srgb_to_display_color32(base);
+            let fg_layer = egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("window_border_glow"),
+            );
+            let painter = egui.egui_ctx.layer_painter(fg_layer);
+            let cr = egui::CornerRadius::same(corner_radius_u8);
+            // Inner crisp stroke (thin, bright).
+            painter.rect_stroke(
+                screen_rect,
+                cr,
+                egui::Stroke::new(settings.cinematic.window_border_glow_width, base_disp),
+                egui::StrokeKind::Inside,
+            );
+            // Outer glow: tighter, brighter halo to match the goal's
+            // premium look. The goal has a sharp 2-3px stroke with a
+            // soft glow extending ~5-7px outward, not a wide diffuse blob.
+            for (w_mult, a_mult) in [(1.8, 0.70_f32), (3.0, 0.38), (4.5, 0.16)].iter() {
+                let glow = egui::Color32::from_rgba_unmultiplied(
+                    base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
+                );
+                let glow_disp = srgb_to_display_color32(glow);
+                painter.rect_stroke(
+                    screen_rect,
+                    cr,
+                    egui::Stroke::new(settings.cinematic.window_border_glow_width * w_mult, glow_disp),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
         if self.app_state.search_open {
             match self.search.show(&egui.egui_ctx) {
                 SearchAction::Close => self.app_state.search_open = false,
