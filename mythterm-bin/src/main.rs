@@ -146,7 +146,7 @@ impl MythtermApp {
         self.mux.insert_pane(pane);
         self.mux.insert_tab(Arc::new(Tab::new(tab_id, self.mux.get_pane(pane_id).unwrap())));
         self.active_pane = Some(pane_id);
-        self.app_state.tab_titles.push(format!("Tab {}", tab_id + 1));
+        self.app_state.tab_titles.push(format!("Tab{}", tab_id + 1));
         self.app_state.tab_pane_ids.push(pane_id);
         self.app_state.active_tab = self.app_state.tab_titles.len() - 1;
         log::info!("Spawned pane {} in tab {}", pane_id, tab_id);
@@ -602,17 +602,51 @@ impl MythtermApp {
         let title_bar_h = 28.0;
         let tab_bar_h = 36.0;
         let chrome_h = title_bar_h + tab_bar_h;
+        let settings = self.config.get_settings();
+        let corner_radius_u8 = settings.cinematic.window_corner_radius as u8;
+
+        // Window-level rounded background + bright border glow.
+        //
+        // Drawn on the background layer so it sits BEHIND the chrome
+        // and central panels. The chrome panel's fill is set to match
+        // this background so the chrome is a smooth continuation of
+        // the window. The central panel has its own fill; its rounded
+        // bottom corners leave small gaps that show this background
+        // through, which reads as a subtle "card" vignette at the
+        // corners.
+        let chrome_bg = srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28));
+        let screen_rect = egui.egui_ctx.screen_rect();
+        let bg_painter = egui.egui_ctx.layer_painter(egui::LayerId::background());
+        bg_painter.rect_filled(
+            screen_rect,
+            egui::CornerRadius::same(corner_radius_u8),
+            chrome_bg,
+        );
+        // (The bright border glow is drawn at the END of the frame on a
+        // foreground layer so it sits ON TOP of the chrome and central
+        // panels rather than being covered by them. See below.)
+
         #[allow(deprecated)]
         egui::Panel::top("chrome")
             .frame(egui::Frame {
                 inner_margin: egui::Margin::ZERO,
-                fill: srgb_to_display_color32(egui::Color32::from_rgb(20, 22, 28)),
+                fill: egui::Color32::TRANSPARENT,
                 stroke: egui::Stroke::new(0.0, egui::Color32::TRANSPARENT),
                 ..Default::default()
             })
             .show_separator_line(false)
             .exact_height(chrome_h)
             .show(&egui.egui_ctx, |ui| {
+                // Draw the chrome panel's background ourselves (the Frame's
+                // paint uses content_ui.min_rect() which can be smaller than
+                // the panel rect, causing a y-offset bug in egui 0.34.x).
+                let chrome_panel_rect = ui.max_rect();
+                ui.painter().rect_filled(
+                    chrome_panel_rect,
+                    egui::CornerRadius::ZERO,
+                    chrome_bg,
+                );
+
                 let bar_rect = egui::Rect::from_min_size(
                     ui.cursor().min,
                     egui::vec2(ui.available_width(), title_bar_h),
@@ -712,7 +746,6 @@ impl MythtermApp {
         // fill the central panel with the configured background
         // color — this way the entire region is dark even if the
         // widget is smaller than expected.
-        let settings = self.config.get_settings();
         // The egui-wgpu renderer writes vertex colors as-is to our
         // linear HDR target, which is then ACES-tonemapped and
         // sRGB-encoded on the swapchain write. Config colors are
@@ -730,6 +763,12 @@ impl MythtermApp {
             .frame(egui::Frame {
                 fill: panel_bg,
                 stroke: egui::Stroke::new(0.0, egui::Color32::TRANSPARENT),
+                corner_radius: egui::CornerRadius {
+                    nw: 0,
+                    ne: 0,
+                    sw: corner_radius_u8,
+                    se: corner_radius_u8,
+                },
                 ..egui::Frame::default()
             })
             .show(&egui.egui_ctx, |ui| {
@@ -751,7 +790,45 @@ impl MythtermApp {
             }
         });
 
-        // Search overlay
+        // Window border glow (bright cyan stroke at the window edge).
+        // Drawn last on the foreground layer so it sits ON TOP of the
+        // chrome and central panels. We layer a sharp inner stroke with
+        // several softer outer strokes for a glow effect.
+        if settings.cinematic.window_border_glow_width > 0.0 {
+            let base = egui::Color32::from_rgb(
+                settings.cinematic.window_border_glow[0],
+                settings.cinematic.window_border_glow[1],
+                settings.cinematic.window_border_glow[2],
+            );
+            let base_disp = srgb_to_display_color32(base);
+            let fg_layer = egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("window_border_glow"),
+            );
+            let painter = egui.egui_ctx.layer_painter(fg_layer);
+            let cr = egui::CornerRadius::same(corner_radius_u8);
+            // Inner crisp stroke.
+            painter.rect_stroke(
+                screen_rect,
+                cr,
+                egui::Stroke::new(settings.cinematic.window_border_glow_width, base_disp),
+                egui::StrokeKind::Inside,
+            );
+            // Outer glow: 3 progressively wider, dimmer strokes.
+            for (i, (w_mult, a_mult)) in [(2.5, 0.55_f32), (4.5, 0.28), (7.0, 0.12)].iter().enumerate() {
+                let glow = egui::Color32::from_rgba_unmultiplied(
+                    base.r(), base.g(), base.b(), (a_mult * 255.0) as u8,
+                );
+                let glow_disp = srgb_to_display_color32(glow);
+                painter.rect_stroke(
+                    screen_rect,
+                    cr,
+                    egui::Stroke::new(settings.cinematic.window_border_glow_width * w_mult, glow_disp),
+                    egui::StrokeKind::Inside,
+                );
+                let _ = i;
+            }
+        }
         if self.app_state.search_open {
             match self.search.show(&egui.egui_ctx) {
                 SearchAction::Close => self.app_state.search_open = false,

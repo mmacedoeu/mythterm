@@ -44,6 +44,15 @@ pub struct CinematicSettings {
     /// Screen curvature (barrel distortion in the shared vertex shader).
     /// 0.0 = flat, 0.05 = subtle curve, 0.1 = noticeable. Default: 0.05.
     pub screen_curvature: f32,
+    /// Window corner radius in pixels (rounded outer window corners).
+    /// 0.0 = sharp corners. Default: 10.0.
+    pub window_corner_radius: f32,
+    /// Window border glow color (sRGB, 0..255 each).
+    /// Default: bright cyan (96, 188, 232) — matches the goal mockup.
+    pub window_border_glow: [u8; 3],
+    /// Window border glow width in pixels.
+    /// 0.0 = no border. Default: 1.5.
+    pub window_border_glow_width: f32,
 }
 
 impl Default for CinematicSettings {
@@ -62,6 +71,9 @@ impl Default for CinematicSettings {
             glass_top_falloff: 3.0,
             glass_ceiling_color: [1.0, 0.97, 0.92],
             screen_curvature: 0.05,
+            window_corner_radius: 10.0,
+            window_border_glow: [96, 188, 232],
+            window_border_glow_width: 1.5,
         }
     }
 }
