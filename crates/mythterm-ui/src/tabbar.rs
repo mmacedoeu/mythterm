@@ -141,8 +141,10 @@ impl TabBar {
                         );
 
                         // 2. Rounded gradient fill (navy -> near-black).
-                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(22, 36, 55));
-                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(11, 16, 24));
+                        // Top has a subtle cyan-tinted lift for the "glow"
+                        // effect, bottom is near-black.
+                        let top_c = srgb_to_display_color32(egui::Color32::from_rgb(24, 42, 66));
+                        let bot_c = srgb_to_display_color32(egui::Color32::from_rgb(9, 14, 22));
                         let inset = 0.5_f32;
                         let fill_rect = rect.shrink(inset);
                         let fill_cr = egui::CornerRadius::same(11);
@@ -174,10 +176,10 @@ impl TabBar {
                         ui.painter().add(egui::Shape::mesh(mesh));
 
                         // 3. Cyan emissive border + multi-layer glow.
-                        // Subtle in the goal — just a hint of cyan.
+                        // Thin visible line + soft bloom, like the goal.
                         let border_rgb = egui::Color32::from_rgb(46, 167, 255);
                         let border_disp = srgb_to_display_color32(
-                            egui::Color32::from_rgba_unmultiplied(46, 167, 255, 110),
+                            egui::Color32::from_rgba_unmultiplied(46, 167, 255, 170),
                         );
                         ui.painter().rect_stroke(
                             fill_rect,
@@ -185,7 +187,7 @@ impl TabBar {
                             egui::Stroke::new(1.0, border_disp),
                             egui::StrokeKind::Inside,
                         );
-                        for &(w_mult, a_mult) in &[(2.0_f32, 0.18_f32), (4.5, 0.09), (8.0, 0.04)] {
+                        for &(w_mult, a_mult) in &[(2.5_f32, 0.22_f32), (5.0, 0.12), (9.0, 0.05)] {
                             let glow = egui::Color32::from_rgba_unmultiplied(
                                 border_rgb.r(), border_rgb.g(), border_rgb.b(),
                                 (a_mult * 255.0) as u8,
