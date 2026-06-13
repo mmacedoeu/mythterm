@@ -142,9 +142,8 @@ fn tonemap_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // ============================================================
-// Bloom Combine + Tonemap Pass (final pass to swapchain)
-// Reads the original HDR + bloom result, adds them, applies ACES
-// tonemap and vignette, and writes the final sRGB-ready output.
+// Bloom Combine Pass: Add bloom result back onto original.
+// HDR output — to be followed by tonemap_fs in PostProcess.
 // ============================================================
 @fragment
 fn bloom_combine_fs(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -153,15 +152,6 @@ fn bloom_combine_fs(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Bloom intensity multiplier (matches the 0.8 threshold in bloom_threshold_fs)
     let bloom_intensity = 0.6;
-    let combined = original.rgb + bloom.rgb * bloom_intensity;
 
-    // Filmic ACES tonemapping
-    let mapped = aces(combined);
-
-    // Slight vignette effect
-    let center = vec2<f32>(0.5, 0.5);
-    let dist = distance(in.uv, center);
-    let vignette = 1.0 - smoothstep(0.4, 0.9, dist) * 0.25;
-
-    return vec4<f32>(mapped * vignette, original.a);
+    return vec4<f32>(original.rgb + bloom.rgb * bloom_intensity, original.a);
 }

@@ -52,13 +52,13 @@ pub struct BloomRenderer {
 impl BloomRenderer {
     /// Create a new bloom renderer.
     ///
-    /// `format` is the format of the final output (the swapchain).
-    /// The threshold and blur passes write to the HDR mip chain
-    /// (`Rgba16Float`) so they get their own format. Only the
-    /// combine pass writes to the swapchain with `format`.
-    pub fn new(device: &Device, format: TextureFormat, width: u32, height: u32) -> Self {
+    /// All bloom passes write to HDR textures (`Rgba16Float`); the
+    /// renderer never touches the swapchain. A downstream post-process
+    /// pass (see `PostProcess`) is expected to tonemap the bloom
+    /// output to the swapchain format.
+    pub fn new(device: &Device, width: u32, height: u32) -> Self {
         let (bind_group_layout, combine_bind_group_layout, threshold_pipeline, blur_pipeline, combine_pipeline) =
-            Self::create_pipelines(device, format);
+            Self::create_pipelines(device);
         let textures = Self::create_textures(device, width, height);
         let bind_groups = Self::create_texture_bind_groups(device, &bind_group_layout, &textures);
 
@@ -91,7 +91,6 @@ impl BloomRenderer {
 
     fn create_pipelines(
         device: &Device,
-        format: TextureFormat,
     ) -> (
         wgpu::BindGroupLayout,
         wgpu::BindGroupLayout,
@@ -179,10 +178,12 @@ impl BloomRenderer {
         });
 
         // Threshold + blur write to the HDR mip chain (Rgba16Float).
-        // Only the combine pass writes to the swapchain (`format`).
+        // The combine pass also writes to an HDR intermediate
+        // (Rgba16Float) so a downstream tonemap pass can finish the
+        // pipeline. The bloom renderer never touches the swapchain.
         let threshold_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, TextureFormat::Rgba16Float, "bloom_threshold_fs");
         let blur_pipeline = Self::create_pipeline(device, &pipeline_layout, &shader, TextureFormat::Rgba16Float, "bloom_blur_fs");
-        let combine_pipeline = Self::create_pipeline(device, &combine_pipeline_layout, &shader, format, "bloom_combine_fs");
+        let combine_pipeline = Self::create_pipeline(device, &combine_pipeline_layout, &shader, TextureFormat::Rgba16Float, "bloom_combine_fs");
 
         (
             bind_group_layout,
@@ -313,9 +314,11 @@ impl BloomRenderer {
     /// Render the full bloom pipeline.
     ///
     /// Runs threshold -> downsample blur chain -> upsample -> combine.
-    /// The combine step writes the final `original + bloom * intensity`
-    /// HDR result to `output_view` (typically an HDR intermediate
-    /// texture or the swapchain for direct tonemapping).
+    /// The combine step writes the HDR result `original + bloom * intensity`
+    /// to `output_view`. The output is always HDR; the bloom renderer
+    /// never touches the swapchain. A downstream post-process pass
+    /// (see [`PostProcess`]) is expected to tonemap the HDR output
+    /// to the swapchain.
     pub fn render(
         &self,
         device: &Device,

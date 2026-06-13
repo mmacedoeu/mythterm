@@ -16,7 +16,7 @@ use mythterm_mux::domain::{Domain, LocalDomain};
 use mythterm_mux::pane::PaneId;
 use mythterm_mux::tab::Tab;
 use mythterm_mux::Mux;
-use mythterm_render::{BloomRenderer, RenderTarget};
+use mythterm_render::{BloomRenderer, PostProcess, RenderTarget};
 use mythterm_ui::input::InputMapper;
 use mythterm_ui::overlay::{CommandPalette, SearchOverlay, SearchAction};
 use mythterm_ui::tabbar::TabBar;
@@ -48,6 +48,7 @@ struct MythtermApp {
     egui: Option<EguiRenderState>,
     render_target: Option<RenderTarget>,
     bloom: Option<BloomRenderer>,
+    post_process: Option<PostProcess>,
     mux: Arc<Mux>,
     local_domain: Option<LocalDomain>,
     active_pane: Option<PaneId>,
@@ -81,6 +82,7 @@ impl MythtermApp {
             egui: None,
             render_target: None,
             bloom: None,
+            post_process: None,
             mux: Arc::new(Mux::new()),
             local_domain: None,
             active_pane: None,
@@ -311,9 +313,12 @@ impl ApplicationHandler for MythtermApp {
         let rt_height = surface_config.height;
         let surface_format = surface_config.format;
         self.render_target = Some(RenderTarget::new(&device, rt_width, rt_height));
-        // Bloom uses the surface format because its combine step writes
-        // to the swapchain. The intermediate mip chain is always Rgba16Float.
-        self.bloom = Some(BloomRenderer::new(&device, surface_format, rt_width, rt_height));
+        // Bloom writes HDR (Rgba16Float) — never touches the swapchain.
+        self.bloom = Some(BloomRenderer::new(&device, rt_width, rt_height));
+        // PostProcess owns the HDR scene buffer that bloom writes
+        // into and the tonemap pass that finishes the pipeline to
+        // the swapchain.
+        self.post_process = Some(PostProcess::new(&device, surface_format, rt_width, rt_height));
 
         // Create egui renderer for the render target format (HDR)
         let egui_renderer = egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba16Float, egui_wgpu::RendererOptions::default());
@@ -363,6 +368,10 @@ impl ApplicationHandler for MythtermApp {
                 // Update bloom mip chain to match new window size
                 if let (Some(device), Some(bloom)) = (&self.device, &mut self.bloom) {
                     bloom.resize(device, new_size.width.max(1), new_size.height.max(1));
+                }
+                // Update post-process scene texture
+                if let (Some(device), Some(pp)) = (&self.device, &mut self.post_process) {
+                    pp.resize(device, new_size.width.max(1), new_size.height.max(1));
                 }
                 // Update egui screen descriptor
                 if let Some(egui) = &mut self.egui {
@@ -609,17 +618,22 @@ impl MythtermApp {
             egui.renderer.render(&mut rpass, &paint_jobs, &egui.screen_descriptor);
         }
 
-        // Apply bloom (threshold + blur chain + combine + tonemap).
-        // The combine step writes the final sRGB-ready result directly
-        // to the swapchain, so no separate tonemap pass is needed.
-        if let (Some(rt), Some(bloom)) = (&self.render_target, &self.bloom) {
+        // Apply bloom: read from the egui render target, write the
+        // combined HDR result to the post-process scene buffer. Bloom
+        // never touches the swapchain.
+        if let (Some(rt), Some(bloom), Some(pp)) = (&self.render_target, &self.bloom, &self.post_process) {
             bloom.render(
                 device,
                 &mut encoder,
                 &rt.sample_view,
                 &rt.sampler,
-                &view,
+                pp.scene_view(),
             );
+        }
+
+        // Tonemap the HDR scene (bloom output) to the swapchain.
+        if let Some(pp) = &self.post_process {
+            pp.render(device, &mut encoder, &view);
         }
 
         queue.submit(std::iter::once(encoder.finish()));

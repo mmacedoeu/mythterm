@@ -11,6 +11,6 @@ pub mod render_target;
 pub mod renderer;
 
 pub use bloom::BloomRenderer;
-pub use postprocess::{PostProcess, PostPass};
+pub use postprocess::PostProcess;
 pub use render_target::RenderTarget;
 pub use renderer::TerminalRenderer;
