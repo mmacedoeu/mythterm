@@ -28,6 +28,9 @@ enum Step {
     Gradient,
     Border,
     Glow,
+    TopOnly,
+    BottomOnly,
+    NoLeftRight,
 }
 
 impl Step {
@@ -40,6 +43,9 @@ impl Step {
                 Some("3") => Step::Gradient,
                 Some("4") => Step::Border,
                 Some("5") => Step::Glow,
+                Some("6") => Step::TopOnly,
+                Some("7") => Step::BottomOnly,
+                Some("8") => Step::NoLeftRight,
                 _ => Step::Fill,
             },
             _ => Step::Fill,
@@ -50,6 +56,52 @@ impl Step {
 const GOAL_NAVY: egui::Color32 = egui::Color32::from_rgb(22, 44, 62);
 const GOAL_BORDER: egui::Color32 = egui::Color32::from_rgb(72, 176, 224);
 
+/// Draw a horizontal line from x0 to x1 at y with an asymmetric
+/// brightness gradient. `peak_t` is the relative position (0..1) of
+/// the brightest point. `left_edge` is the RGB at x0, `right_edge` at x1,
+/// `peak` is the RGB at the brightest point. Interpolates with smoothstep.
+fn gradient_line(
+    painter: &egui::Painter,
+    x0: f32,
+    x1: f32,
+    y: f32,
+    peak_t: f32,
+    left_edge: (u8, u8, u8),
+    peak: (u8, u8, u8),
+    right_edge: (u8, u8, u8),
+    alpha: u8,
+) {
+    let steps = 40;
+    let width = x1 - x0;
+    for i in 0..steps {
+        let t0 = i as f32 / steps as f32;
+        let t1 = (i + 1) as f32 / steps as f32;
+        let xa = x0 + t0 * width;
+        let xb = x0 + t1 * width;
+        let mid_t = (t0 + t1) * 0.5;
+        // Asymmetric falloff: distance from peak, normalized per side
+        let (s, edge) = if mid_t < peak_t {
+            // Left side: blend from left_edge to peak
+            let d = (peak_t - mid_t) / peak_t;
+            (1.0 - d, left_edge)
+        } else {
+            // Right side: blend from peak to right_edge
+            let d = (mid_t - peak_t) / (1.0 - peak_t);
+            (1.0 - d, right_edge)
+        };
+        let s = s.clamp(0.0, 1.0);
+        let s = s * s * (3.0 - 2.0 * s); // smoothstep
+        let r = edge.0 as f32 + (peak.0 as f32 - edge.0 as f32) * s;
+        let g = edge.1 as f32 + (peak.1 as f32 - edge.1 as f32) * s;
+        let b = edge.2 as f32 + (peak.2 as f32 - edge.2 as f32) * s;
+        let color = egui::Color32::from_rgba_unmultiplied(r as u8, g as u8, b as u8, alpha);
+        painter.line_segment(
+            [egui::pos2(xa, y), egui::pos2(xb, y)],
+            egui::Stroke::new(1.0, color),
+        );
+    }
+}
+
 /// Draw a 300x60 tab for the given `step` at the top-left of `ui`.
 fn draw_tab(ui: &mut egui::Ui, step: Step) {
     let (rect, _resp) = ui.allocate_exact_size(
@@ -57,7 +109,7 @@ fn draw_tab(ui: &mut egui::Ui, step: Step) {
         egui::Sense::hover(),
     );
     let painter = ui.painter();
-    let cr = egui::CornerRadius::same(12);
+    let cr = 0.0; // SHARP corners — goal tab has no rounding.
 
     match step {
         Step::Fill => {
@@ -67,31 +119,10 @@ fn draw_tab(ui: &mut egui::Ui, step: Step) {
             painter.rect_filled(rect, 12.0, GOAL_NAVY);
         }
         Step::Gradient => {
-            let top_c = egui::Color32::from_rgb(28, 50, 75);
-            let bot_c = egui::Color32::from_rgb(14, 28, 42);
-            let mut mesh = egui::Mesh::default();
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: rect.left_top(),
-                color: top_c,
-                uv: egui::Pos2::ZERO,
-            });
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: rect.right_top(),
-                color: top_c,
-                uv: egui::Pos2::ZERO,
-            });
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: rect.left_bottom(),
-                color: bot_c,
-                uv: egui::Pos2::ZERO,
-            });
-            mesh.vertices.push(egui::epaint::Vertex {
-                pos: rect.right_bottom(),
-                color: bot_c,
-                uv: egui::Pos2::ZERO,
-            });
-            mesh.indices.extend_from_slice(&[0, 1, 2, 1, 3, 2]);
-            painter.add(egui::Shape::mesh(mesh));
+            // GOAL: interior is nearly uniform ~(13, 39, 60).
+            // The goal's top-bottom difference is only ~2-3 RGB units.
+            // Test 3a: solid fill at the isolated-test navy (22, 44, 62)
+            painter.rect_filled(rect, cr, GOAL_NAVY);
         }
         Step::Border => {
             let top_c = egui::Color32::from_rgb(28, 50, 75);
@@ -170,6 +201,118 @@ fn draw_tab(ui: &mut egui::Ui, step: Step) {
                     egui::StrokeKind::Inside,
                 );
             }
+        }
+        Step::TopOnly => {
+            // Reproduce goal pattern: black gap, then anti-aliased cyan
+            // gradient (dim -> bright -> transition to fill) over 3 rows.
+            // The goal's border line has a HORIZONTAL brightness gradient
+            // peaking center-left and dimming toward both edges.
+            let border_y = rect.min.y;
+            // Row -2: black gap (above the border, full width)
+            painter.line_segment(
+                [
+                    egui::pos2(rect.min.x, border_y - 2.0),
+                    egui::pos2(rect.max.x, border_y - 2.0),
+                ],
+                egui::Stroke::new(1.0, egui::Color32::BLACK),
+            );
+            // Row -1: dim cyan (anti-alias top) — goal y=74 values
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y - 1.0,
+                0.45,
+                (17, 64, 88),  // left edge
+                (22, 75, 98),  // peak
+                (15, 55, 72),  // right edge
+                255,
+            );
+            // Row 0: bright cyan peak — goal y=75 values, asymmetric
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y + 0.5,
+                0.45,
+                (37, 100, 136), // left edge
+                (45, 125, 165), // peak
+                (32, 93, 128),  // right edge
+                255,
+            );
+            // Row +1: transition to fill — goal y=76 values
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y + 1.5,
+                0.45,
+                (5, 26, 41),   // left edge
+                (8, 32, 50),   // peak
+                (5, 26, 42),   // right edge
+                255,
+            );
+            painter.rect_filled(rect.shrink(2.0), cr, GOAL_NAVY);
+        }
+        Step::BottomOnly => {
+            // Reproduce goal pattern: fill → dim → peak → anti-alias → dark → fill.
+            // Goal: bottom border is ~7px from tab bottom (y=128 in 68-135 tab).
+            // In our 60px tab, position peak at rect.max.y - 6.
+            // Fill FIRST so lines draw on top.
+            painter.rect_filled(rect, cr, GOAL_NAVY);
+            let border_y = rect.max.y - 6.0;
+            // Row -1: dim transition (blends up from fill) — goal y=127
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y - 1.0,
+                0.40,
+                (4, 25, 37),   // left edge
+                (6, 30, 45),   // peak
+                (4, 22, 35),   // right edge
+                255,
+            );
+            // Row 0: bright cyan peak — goal y=128 values, asymmetric
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y + 0.0,
+                0.40,
+                (26, 111, 159), // left edge
+                (29, 138, 195), // peak
+                (27, 103, 141), // right edge
+                255,
+            );
+            // Row +1: anti-alias below peak — goal y=129
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y + 1.0,
+                0.40,
+                (4, 42, 70),   // left edge
+                (8, 54, 82),   // peak
+                (6, 35, 57),   // right edge
+                255,
+            );
+            // Row +2: dark area — goal y=130
+            gradient_line(
+                painter,
+                rect.min.x,
+                rect.max.x,
+                border_y + 2.0,
+                0.50,
+                (1, 3, 5),     // left edge
+                (2, 5, 8),     // peak
+                (0, 1, 3),     // right edge
+                255,
+            );
+        }
+        Step::NoLeftRight => {
+            // Solid fill, no borders at all (confirms left/right have no border).
+            painter.rect_filled(rect, cr, GOAL_NAVY);
         }
     }
 }
@@ -381,7 +524,7 @@ impl App {
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.08, g: 0.08, b: 0.09, a: 1.0,
+                            r: 0.0, g: 0.0, b: 0.0, a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
