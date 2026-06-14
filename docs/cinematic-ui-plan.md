@@ -248,42 +248,56 @@ material, not a new renderer.
 - Procedural cubemap is cheaper than a HDRi; we already have
   one in `mythterm-render::environment` — reuse it.
 
-**Progress (in flight, 2026-06-14):**
+**Progress (Done, 2026-06-14):**
 
 - `crates/display-test/` scaffolded, registered as workspace
   member, with shared `wgsl-sdf::png::write_png_rgba` reused for
   the snapshot pipeline.
+- **`DisplayMaterial` struct carries all six effect parameters**
+  (`subpixel_layout`, `response_curve`, `backlight_uniformity`,
+  `glass_thickness`, `reflection_strength`, `bloom_strength`,
+  `persistence`) and is hot-swappable: the keyboard handler
+  writes to the existing uniform buffer on number-key 1..6.
 - **Step 1 done:** procedural 256×64 RGBA8 "terminal content"
   texture (5 vertical color stripes + a 3×3 stylised letter
   grid) is uploaded with `queue.write_texture` and sampled as a
   fullscreen quad with nearest filtering. `crates/display-test/goal/1.png`
-  reproduces byte-perfectly via `tools/test_step.sh`.
+  reproduces byte-perfectly.
 - **Step 2 done:** the fragment shader takes 3 sub-pixel-offset
   samples (R at `uv - texel.x`, G at `uv`, B at `uv + texel.x`)
-  and emits `vec4(r, g, b, a)`. The result shows visible color
-  fringing at every stripe boundary — the same terminal content
-  is materially different from Step 1. `crates/display-test/goal/2.png`
+  and emits `vec4(r, g, b, a)`. Visible color fringing at every
+  stripe boundary. `crates/display-test/goal/2.png` reproduces
+  byte-perfectly.
+- **Step 3 done:** a 256×64 `Rgba8Unorm` *history* texture
+  (cleared to zero at startup) is bound at slot 3 and sampled
+  in the fragment shader. The response curve blends
+  `mix(history, current, persistence)` — for LCD, `persistence
+  = 0.3` plus a slight gamma boost (the physical 8ms response
+  would saturate to 1.0 at 60fps and be invisible; the test
+  value is chosen to be visible). For phosphor (`response_curve
+  = 2`) the blend also desaturates and tints green with a glow
+  on bright pixels. `crates/display-test/goal/3.png` reproduces
+  byte-perfectly.
+- **Step 4 done:** a procedural vertical gradient (light blue
+  at the top, near-black at the bottom) is mixed in at
+  `min(0.2, reflection_strength * glass_thickness * 0.3)`. The
+  cap keeps reflections from ever obscuring text. Visible as a
+  soft sky-to-floor gradient over the panel. `goal/4.png`
   reproduces byte-perfectly.
-- Steps 3..6 are scaffolded (the `DisplayMaterial` struct and
-  `material_for_step()` helper exist; steps 3..6 currently
-  no-op the `response_curve` / `glass_thickness` /
-  `backlight_uniformity` / `reflection_strength` /
-  `bloom_strength` fields). They are sequenced as:
-  - **Step 3** LCD response curve: keep a *history* texture
-    (`Rgba8Unorm` of previous frame's content sample), blend
-    `prev = mix(prev, current, dt / 8ms)` for LCD; add a long
-    exponential decay for phosphor. Needs `surface.get_current_texture`'s
-    timestamp query or a frame counter for `dt`.
-  - **Step 4** Glass reflection: layer in a procedural cubemap
-    (reuse `mythterm-render::environment::procedural_env()` if
-    available, else a small hand-rolled gradient cubemap) mixed
-    in at `reflection_strength` (capped < 0.2).
-  - **Step 5** Backlight uniformity: a radial gradient in the
-    fragment shader, brighter at center, dimmer at corners.
-  - **Step 6** Full DisplayMaterial, hot-swappable uniform. By
-    this point the steps above have all been merged into the
-    same shader, and toggling `DisplayMaterial` values live
-    (e.g. via a number key) just writes to the uniform buffer.
+- **Step 5 done:** a radial gradient (`length(uv - 0.5)`) is
+  applied as `out *= mix(1.0, radial, 1.0 - backlight_uniformity)`,
+  giving the panel a darker-edge, brighter-center look.
+  `goal/5.png` reproduces byte-perfectly.
+- **Step 6 done:** the full DisplayMaterial is active (subpixel
+  + LCD response + glass + backlight + `bloom_strength = 0.3`).
+  Bloom is an additive lift on bright pixels above a 0.6 luma
+  threshold, so the white letter serifs glow slightly. Pressing
+  number keys 1..6 at runtime hot-swaps the material via
+  `queue.write_buffer` on the existing buffer (no pipeline re-init
+  needed). `goal/6.png` reproduces byte-perfectly.
+- All 6 steps share one shader; the only state is the
+  DisplayMaterial uniform. Steps 1..6 reproduce byte-perfectly
+  via `tools/test_step.sh display-test N` for `N = 1..6`.
 
 **Out-of-scope polish for Phase 3 (deferred to Phase 4+):**
 

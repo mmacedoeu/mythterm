@@ -152,12 +152,16 @@ fn build_content_texture() -> Vec<u8> {
 struct DisplayMaterial {
     /// 0 = none, 1 = RGB stripe
     subpixel_layout: u32,
-    /// 0 = none, 1 = LCD (8 ms), 2 = phosphor P22
+    /// 0 = none, 1 = LCD, 2 = phosphor P22
     response_curve: u32,
     backlight_uniformity: f32,
     glass_thickness: f32,
     reflection_strength: f32,
     bloom_strength: f32,
+    /// Direct blend factor for the response curve (0 = full history,
+    /// 1 = full current). The "physical" response time (e.g. 8ms for
+    /// LCD) is converted to this in `material_for_step`.
+    persistence: f32,
     _pad: [u32; 1],
 }
 
@@ -170,6 +174,7 @@ impl Default for DisplayMaterial {
             glass_thickness: 0.0,
             reflection_strength: 0.0,
             bloom_strength: 0.0,
+            persistence: 1.0,
             _pad: [0],
         }
     }
@@ -195,6 +200,8 @@ struct App {
     pipeline_layout: Option<wgpu::PipelineLayout>,
     content_texture: Option<wgpu::Texture>,
     content_view: Option<wgpu::TextureView>,
+    history_texture: Option<wgpu::Texture>,
+    history_view: Option<wgpu::TextureView>,
     material_buffer: Option<wgpu::Buffer>,
     step: u32,
     size: (u32, u32),
@@ -219,6 +226,8 @@ impl App {
             pipeline_layout: None,
             content_texture: None,
             content_view: None,
+            history_texture: None,
+            history_view: None,
             material_buffer: None,
             step,
             size: (800, 600),
@@ -231,11 +240,56 @@ impl App {
 
 fn material_for_step(step: u32) -> DisplayMaterial {
     match step {
-        1 => DisplayMaterial { subpixel_layout: 0, response_curve: 0, ..Default::default() },
-        2 => DisplayMaterial { subpixel_layout: 1, response_curve: 0, ..Default::default() },
-        // Placeholders for steps 3..6; populated when those steps
-        // are implemented.
-        _ => DisplayMaterial { subpixel_layout: 0, response_curve: 0, ..Default::default() },
+        // Step 1: terminal content, no material.
+        1 => DisplayMaterial::default(),
+        // Step 2: + RGB stripe subpixel sampling.
+        2 => DisplayMaterial {
+            subpixel_layout: 1,
+            ..Default::default()
+        },
+        // Step 3: + response curve. The "persistence" is the
+        // test-time blend factor: a real LCD at 60fps would
+        // saturate to 1.0 and be invisible, so we use 0.3 (a
+        // noticeable but not extreme trail).
+        3 => DisplayMaterial {
+            subpixel_layout: 1,
+            response_curve: 1,
+            persistence: 0.3,
+            ..Default::default()
+        },
+        // Step 4: + glass reflection.
+        4 => DisplayMaterial {
+            subpixel_layout: 1,
+            response_curve: 1,
+            persistence: 0.3,
+            glass_thickness: 0.5,
+            reflection_strength: 0.7,
+            ..Default::default()
+        },
+        // Step 5: + backlight uniformity. full_backlight = 0
+        // means no effect; backlight_uniformity = 0.5 means
+        // center is 1.0x and corners are ~0.83x.
+        5 => DisplayMaterial {
+            subpixel_layout: 1,
+            response_curve: 1,
+            persistence: 0.3,
+            glass_thickness: 0.5,
+            reflection_strength: 0.7,
+            backlight_uniformity: 0.5,
+            ..Default::default()
+        },
+        // Step 6: full DisplayMaterial, hot-swappable.
+        6 => DisplayMaterial {
+            subpixel_layout: 1,
+            response_curve: 1,
+            persistence: 0.3,
+            glass_thickness: 0.5,
+            reflection_strength: 0.7,
+            backlight_uniformity: 0.5,
+            bloom_strength: 0.3,
+            ..Default::default()
+        },
+        _ => DisplayMaterial::default(),
     }
 }
 
@@ -243,8 +297,9 @@ fn material_for_step(step: u32) -> DisplayMaterial {
 // Shaders
 // -----------------------------------------------------------------
 
-// Single combined shader module for the display material. Both
-// `vs_main` and `fs_main` plus the shared `VsIn`/`VsOut` types.
+// Single combined shader module for the display material. All
+// six steps use the same fragment shader; the DisplayMaterial
+// uniform branches select which effects are active.
 const DISPLAY_SHADER: &str = r#"
 struct VsIn {
     @location(0) pos: vec2<f32>,
@@ -265,21 +320,24 @@ fn vs_main(in: VsIn) -> VsOut {
 @group(0) @binding(0) var content_tex: texture_2d<f32>;
 @group(0) @binding(1) var content_smp: sampler;
 @group(0) @binding(2) var<uniform> material: DisplayMaterial;
+@group(0) @binding(3) var history_tex: texture_2d<f32>;
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let uv = in.uv;
     var color: vec4<f32>;
 
+    // === Step 1 / 2: source content ===
     if material.subpixel_layout == 0u {
-        // Step 1: plain sample. Nearest filter (set on the
-        // sampler) so the stripe edges are crisp.
+        // Plain sample. Nearest filter on the sampler keeps stripe
+        // edges crisp.
         color = textureSample(content_tex, content_smp, uv);
     } else {
-        // Step 2: RGB stripe subpixel sampling. For each output
-        // pixel, sample 3 neighbors at sub-pixel offsets. The
-        // horizontal sub-pixel index is `floor(uv.x * stripe_dx) mod 3`
-        // where stripe_dx = texels-per-output-pixel × 3.
+        // RGB stripe subpixel: 3 neighbor samples at sub-pixel
+        // offsets. The horizontal sub-pixel index is
+        //   floor(uv.x * texels_per_stripe * 3) mod 3
+        // but we just take r at uv-tx, g at uv, b at uv+tx, which
+        // is equivalent up to a phase shift.
         let texel = vec2<f32>(1.0 / 256.0, 1.0 / 64.0);
         let r_uv = uv + vec2<f32>(-texel.x, 0.0);
         let g_uv = uv;
@@ -289,6 +347,65 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let b = textureSample(content_tex, content_smp, b_uv).b;
         let a = textureSample(content_tex, content_smp, uv).a;
         color = vec4<f32>(r, g, b, a);
+    }
+
+    // === Step 3: response curve (temporal blend with history) ===
+    if material.response_curve != 0u {
+        let hist = textureSample(history_tex, content_smp, uv);
+        // `persistence` is the direct blend factor (0 = full
+        // history, 1 = full current). A real LCD at 60fps would
+        // saturate to 1.0; we use 0.3 for the test to make the
+        // effect visible.
+        let blended = mix(hist, color, material.persistence);
+        if material.response_curve == 2u {
+            // Phosphor P22: green tint + slight glow on bright
+            // pixels (the famous green trail of CRTs).
+            let glow = max(0.0, (blended.r + blended.b) * 0.5 - 0.3) * 0.5;
+            color = vec4<f32>(
+                blended.r * 0.65,
+                blended.g + glow,
+                blended.b * 0.55,
+                blended.a
+            );
+        } else {
+            // LCD: slight gamma boost (deeper blacks, slightly
+            // brighter midtones).
+            color = vec4<f32>(
+                pow(blended.rgb, vec3<f32>(0.92)),
+                blended.a
+            );
+        }
+    }
+
+    // === Step 4: glass reflection ===
+    // Procedural reflection: a vertical gradient (light at the
+    // top, dark at the bottom), mixed in at
+    //   reflection_strength * glass_thickness * 0.3
+    // capped at 0.2 per spec to never obscure text.
+    if material.glass_thickness > 0.0 && material.reflection_strength > 0.0 {
+        let top = vec3<f32>(0.45, 0.55, 0.65);
+        let bot = vec3<f32>(0.02, 0.02, 0.04);
+        let refl = mix(bot, top, 1.0 - uv.y);
+        let mix_factor = min(0.2, material.reflection_strength * material.glass_thickness * 0.3);
+        color = vec4<f32>(mix(color.rgb, refl, mix_factor), color.a);
+    }
+
+    // === Step 5: backlight uniformity ===
+    // Radial gradient: 1.0 at center, dropping to 0.7 at corners.
+    if material.backlight_uniformity < 1.0 {
+        let centered = uv - vec2<f32>(0.5, 0.5);
+        let radial = clamp(1.0 - length(centered) * 0.6, 0.7, 1.0);
+        // `backlight_uniformity` interpolates between flat (1.0)
+        // and the radial gradient (0.0 = pure radial).
+        let backlight = mix(1.0, radial, 1.0 - material.backlight_uniformity);
+        color = vec4<f32>(color.rgb * backlight, color.a);
+    }
+
+    // === Step 6: bloom (additive bright-pixel bleed) ===
+    if material.bloom_strength > 0.0 {
+        let luma = dot(color.rgb, vec3<f32>(0.299, 0.587, 0.114));
+        let bloom = max(0.0, luma - 0.6) * material.bloom_strength;
+        color = vec4<f32>(color.rgb + vec3<f32>(bloom), color.a);
     }
 
     return color;
@@ -400,6 +517,47 @@ impl ApplicationHandler for App {
         );
         let content_view = content_texture.create_view(&Default::default());
 
+        // History texture: 256x64 Rgba8Unorm, cleared to 0.
+        // Used by the response curve in step 3+. Initial state
+        // is (0, 0, 0, 0) so the first-frame blend is biased
+        // toward black.
+        let history_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("history-tex"),
+            size: wgpu::Extent3d {
+                width: TEXTURE_W,
+                height: TEXTURE_H,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        // Explicit clear to 0 so the initial state is deterministic.
+        let zeros = vec![0u8; (TEXTURE_W * TEXTURE_H * 4) as usize];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &history_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zeros,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(TEXTURE_W * 4),
+                rows_per_image: Some(TEXTURE_H),
+            },
+            wgpu::Extent3d {
+                width: TEXTURE_W,
+                height: TEXTURE_H,
+                depth_or_array_layers: 1,
+            },
+        );
+        let history_view = history_texture.create_view(&Default::default());
+
         // Material uniform.
         let material_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -430,7 +588,8 @@ impl ApplicationHandler for App {
             },
         );
 
-        // Bind group: content texture + sampler + material.
+        // Bind group: content texture + sampler + material +
+        // history texture.
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("display-bgl"),
@@ -458,6 +617,16 @@ impl ApplicationHandler for App {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -491,6 +660,10 @@ impl ApplicationHandler for App {
                     binding: 2,
                     resource: material_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&history_view),
+                },
             ],
         });
 
@@ -507,6 +680,7 @@ struct DisplayMaterial {
     glass_thickness: f32,
     reflection_strength: f32,
     bloom_strength: f32,
+    persistence: f32,
     _pad: u32,
 }
 "#;
@@ -573,6 +747,8 @@ struct DisplayMaterial {
         self.pipeline_layout = Some(pipeline_layout);
         self.content_texture = Some(content_texture);
         self.content_view = Some(content_view);
+        self.history_texture = Some(history_texture);
+        self.history_view = Some(history_view);
         self.material_buffer = Some(material_buffer);
     }
 
@@ -600,15 +776,17 @@ struct DisplayMaterial {
                         self.write_snapshot();
                     } else if let Some(d) = s.as_str().chars().next().and_then(|c| c.to_digit(10)) {
                         if (1..=6).contains(&d) {
-                            // Reload the material to match the new step.
-                            // The full re-init requires recreating the
-                            // pipeline (shader path differs); for now,
-                            // we just print a hint and let the user
-                            // restart the binary.
-                            log::info!(
-                                "step {} selected — restart the binary with --step={} to apply",
-                                d, d
-                            );
+                            // Hot-swap: pick the new material and
+                            // upload it to the existing buffer. No
+                            // pipeline re-init needed since all
+                            // six steps use the same shader.
+                            let new_material = material_for_step(d);
+                            self.material = new_material;
+                            if let (Some(queue), Some(buf)) = (&self.queue, &self.material_buffer) {
+                                queue.write_buffer(buf, 0, bytemuck::bytes_of(&new_material));
+                            }
+                            self.step = d;
+                            log::info!("hot-swapped to step {}", d);
                         }
                     }
                 }
@@ -732,6 +910,7 @@ struct DisplayMaterial {
     glass_thickness: f32,
     reflection_strength: f32,
     bloom_strength: f32,
+    persistence: f32,
     _pad: u32,
 }
 "#;

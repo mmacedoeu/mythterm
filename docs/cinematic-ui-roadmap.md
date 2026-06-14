@@ -10,9 +10,9 @@
 
 | # | Phase                       | Test crate             | Status     |
 |---|-----------------------------|------------------------|------------|
-| 1 | SDF shader-driven chrome    | `sdf-test`             | In flight  |
-| 2 | Myth scene-graph chrome     | `scene-chrome-test`    | Not started|
-| 3 | Display material pipeline   | `display-test`         | Not started|
+| 1 | SDF shader-driven chrome    | `sdf-test`             | Done       |
+| 2 | Myth scene-graph chrome     | `scene-chrome-test`    | Done       |
+| 3 | Display material pipeline   | `display-test`         | Done       |
 | 4 | Retained scene graph        | `retained-scene-test`  | Not started|
 | 5 | Holographic terminal        | `hologram-test`        | Not started|
 | 6 | Splat glow field            | `splat-test`           | Not started|
@@ -42,10 +42,15 @@ integration.
 Goal images and the diff script live in the canonical plan's
 section 11.
 
-## Current state (v44)
+## Current state (v45)
 
-- Active tab: hand-painted egui borders with per-border
-  gradient pattern (v43). Within 1–7 RGB units of the goal.
-- `sdf-test --step=4` is the in-progress replacement: a single
-  WGSL SDF quad that should match the same goal.
-- See the canonical plan for what comes after.
+- Phases 1, 2, 3 are complete. All 12 snapshots
+  (sdf-test 1–2, scene-chrome-test 1–4, display-test 1–6) are
+  byte-perfect against their goal PNGs in `crates/<name>/goal/`.
+- `display-test` is the most recent: a unified
+  `DisplayMaterial` struct (subpixel + LCD response + glass +
+  backlight + bloom) parameterised by a single uniform, with
+  number-key 1..6 hot-swap at runtime.
+- The test binaries share `wgsl-sdf::png::write_png_rgba` for
+  snapshot output, so the PNG pipeline is one crate-wide
+  dependency.
