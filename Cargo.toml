@@ -9,6 +9,7 @@ members = [
     "crates/mythterm-ui",
     "crates/tab-test",
     "crates/sdf-test",
+    "crates/scene-chrome-test",
     "mythterm-bin",
 ]
 

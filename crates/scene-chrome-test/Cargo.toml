@@ -1,0 +1,20 @@
+[package]
+name = "scene-chrome-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "scene-chrome-test"
+path = "src/main.rs"
+
+[dependencies]
+wgpu.workspace = true
+winit.workspace = true
+egui.workspace = true
+egui-winit.workspace = true
+pollster = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
