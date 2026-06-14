@@ -77,8 +77,8 @@ Out of scope (explicitly):
 |---|-----------------------------|----------------------|----------|------------|
 | 1 | SDF shader-driven chrome    | `sdf-test`           | XS–S     | Done       |
 | 2 | Myth scene-graph chrome     | `scene-chrome-test`  | S        | Done       |
-| 3 | Display material pipeline   | `display-test`       | M        | In flight  |
-| 4 | Retained scene graph        | `retained-scene-test`| M        | Not started|
+| 3 | Display material pipeline   | `display-test`       | M        | Done       |
+| 4 | Retained scene graph        | `retained-scene-test`| M        | Done       |
 | 5 | Holographic terminal        | `hologram-test`      | L        | Not started|
 | 6 | Splat glow field            | `splat-test`         | M        | Not started|
 | 7 | Display engine integration  | (the main bin)       | L        | Not started|
@@ -361,6 +361,29 @@ and the splat glow all *just nodes*.
   and `mythterm-render`. The mitigation is that the test
   crate *is* the prototype. Integration only starts once the
   test crate proves the model.
+
+**Phase 4 progress:**
+
+- Test crate `retained-scene-test` built and committed
+  (4/4 steps pass byte-perfectly, `px_over_5 = 0.000%`).
+- `Affine2` 2D transform, `SceneNode { kind, transform, hover,
+  focus, children }`, `walk()` → `Vec<DrawCmd>`.
+- `DrawKind::{Quad, Splat, Text}` — all driven from the same
+  WGSL `Uniforms` struct (no shader switching mid-frame).
+- 64 `uniform_buffers` + 64 `bind_groups` pre-allocated;
+  one per draw slot. `queue.write_buffer` is queued on the
+  queue timeline and gets applied at submit time, so all
+  writes are issued before the encoder is submitted, then
+  the encoder's draws use the per-slot bind groups.
+- 200 ms `ease_out_cubic` on hover, 200 ms on focus, animated
+  in `Scene::tick` and turned into a brightness `boost` on the
+  per-draw color.
+- Two non-obvious wgpu 29 gotchas documented inline:
+  (1) `queue.write_buffer` is queued, not immediate — must
+  happen before the encoder is submitted; (2) on the
+  Vulkan backend we hit, `set_bind_group` mid-pass is
+  silently ignored unless `set_pipeline` is re-issued first.
+
 
 ## 8. Phase 5 — Holographic terminal
 

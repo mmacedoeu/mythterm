@@ -13,7 +13,7 @@
 | 1 | SDF shader-driven chrome    | `sdf-test`             | Done       |
 | 2 | Myth scene-graph chrome     | `scene-chrome-test`    | Done       |
 | 3 | Display material pipeline   | `display-test`         | Done       |
-| 4 | Retained scene graph        | `retained-scene-test`  | Not started|
+| 4 | Retained scene graph        | `retained-scene-test`  | Done       |
 | 5 | Holographic terminal        | `hologram-test`        | Not started|
 | 6 | Splat glow field            | `splat-test`           | Not started|
 | 7 | Display engine integration  | `mythterm-bin`         | Not started|
