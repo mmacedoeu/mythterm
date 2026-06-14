@@ -13,6 +13,7 @@ members = [
     "crates/scene-chrome-test",
     "crates/display-test",
     "crates/retained-scene-test",
+    "crates/hologram-test",
     "mythterm-bin",
 ]
 
