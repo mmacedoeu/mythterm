@@ -1,0 +1,25 @@
+[package]
+name = "display-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "display-test"
+path = "src/main.rs"
+
+[dependencies]
+wgpu.workspace = true
+winit.workspace = true
+pollster = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+glam = { workspace = true }
+wgsl-sdf = { workspace = true }
+
+# Terminal glyph rendering. For Phase 3 Step 1 we use a tiny
+# procedural font built from simple geometric primitives (no MSDF
+# font baking yet). This is a stopgap — Phase 4 will switch to
+# the same MSDF pipeline as mythterm-font.

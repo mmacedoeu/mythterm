@@ -75,9 +75,9 @@ Out of scope (explicitly):
 
 | # | Phase                       | Test crate           | Effort   | Status     |
 |---|-----------------------------|----------------------|----------|------------|
-| 1 | SDF shader-driven chrome    | `sdf-test`           | XS–S     | In flight  |
-| 2 | Myth scene-graph chrome     | `scene-chrome-test`  | S        | Not started|
-| 3 | Display material pipeline   | `display-test`       | M        | Not started|
+| 1 | SDF shader-driven chrome    | `sdf-test`           | XS–S     | Done       |
+| 2 | Myth scene-graph chrome     | `scene-chrome-test`  | S        | Done       |
+| 3 | Display material pipeline   | `display-test`       | M        | In flight  |
 | 4 | Retained scene graph        | `retained-scene-test`| M        | Not started|
 | 5 | Holographic terminal        | `hologram-test`      | L        | Not started|
 | 6 | Splat glow field            | `splat-test`         | M        | Not started|
@@ -247,6 +247,51 @@ material, not a new renderer.
   memory but is well-bounded.
 - Procedural cubemap is cheaper than a HDRi; we already have
   one in `mythterm-render::environment` — reuse it.
+
+**Progress (in flight, 2026-06-14):**
+
+- `crates/display-test/` scaffolded, registered as workspace
+  member, with shared `wgsl-sdf::png::write_png_rgba` reused for
+  the snapshot pipeline.
+- **Step 1 done:** procedural 256×64 RGBA8 "terminal content"
+  texture (5 vertical color stripes + a 3×3 stylised letter
+  grid) is uploaded with `queue.write_texture` and sampled as a
+  fullscreen quad with nearest filtering. `crates/display-test/goal/1.png`
+  reproduces byte-perfectly via `tools/test_step.sh`.
+- **Step 2 done:** the fragment shader takes 3 sub-pixel-offset
+  samples (R at `uv - texel.x`, G at `uv`, B at `uv + texel.x`)
+  and emits `vec4(r, g, b, a)`. The result shows visible color
+  fringing at every stripe boundary — the same terminal content
+  is materially different from Step 1. `crates/display-test/goal/2.png`
+  reproduces byte-perfectly.
+- Steps 3..6 are scaffolded (the `DisplayMaterial` struct and
+  `material_for_step()` helper exist; steps 3..6 currently
+  no-op the `response_curve` / `glass_thickness` /
+  `backlight_uniformity` / `reflection_strength` /
+  `bloom_strength` fields). They are sequenced as:
+  - **Step 3** LCD response curve: keep a *history* texture
+    (`Rgba8Unorm` of previous frame's content sample), blend
+    `prev = mix(prev, current, dt / 8ms)` for LCD; add a long
+    exponential decay for phosphor. Needs `surface.get_current_texture`'s
+    timestamp query or a frame counter for `dt`.
+  - **Step 4** Glass reflection: layer in a procedural cubemap
+    (reuse `mythterm-render::environment::procedural_env()` if
+    available, else a small hand-rolled gradient cubemap) mixed
+    in at `reflection_strength` (capped < 0.2).
+  - **Step 5** Backlight uniformity: a radial gradient in the
+    fragment shader, brighter at center, dimmer at corners.
+  - **Step 6** Full DisplayMaterial, hot-swappable uniform. By
+    this point the steps above have all been merged into the
+    same shader, and toggling `DisplayMaterial` values live
+    (e.g. via a number key) just writes to the uniform buffer.
+
+**Out-of-scope polish for Phase 3 (deferred to Phase 4+):**
+
+- Replace the procedural "letter grid" with real terminal
+  text. Phase 4 (retained scene graph) brings in the
+  `mythterm-font` MSDF pipeline, so the SDF-textured content
+  texture can be regenerated each frame from a `Text { content,
+  font }` node.
 
 ## 7. Phase 4 — Retained scene graph
 
