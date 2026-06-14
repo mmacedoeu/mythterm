@@ -1,0 +1,13 @@
+[package]
+name = "wgsl-sdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WGSL SDF shader and SdfParams uniform type for cinematic MythTerm chrome."
+
+[dependencies]
+bytemuck = { workspace = true }
+
+[lib]
+name = "wgsl_sdf"
+path = "src/lib.rs"

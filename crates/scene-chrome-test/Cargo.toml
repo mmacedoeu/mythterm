@@ -18,3 +18,4 @@ env_logger = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
+wgsl-sdf = { workspace = true }

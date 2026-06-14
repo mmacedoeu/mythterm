@@ -7,6 +7,7 @@ members = [
     "crates/mythterm-mux",
     "crates/mythterm-render",
     "crates/mythterm-ui",
+    "crates/wgsl-sdf",
     "crates/tab-test",
     "crates/sdf-test",
     "crates/scene-chrome-test",
@@ -27,6 +28,7 @@ mythterm-font   = { path = "crates/mythterm-font" }
 mythterm-mux    = { path = "crates/mythterm-mux" }
 mythterm-render = { path = "crates/mythterm-render" }
 mythterm-ui     = { path = "crates/mythterm-ui" }
+wgsl-sdf        = { path = "crates/wgsl-sdf" }
 
 # Myth engine (git dependency, pinned to 0.2.0 stable release)
 myth_core      = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0" }
@@ -40,7 +42,7 @@ myth_macros    = { git = "https://github.com/panxinmiao/myth.git", tag = "0.2.0"
 # Graphics and GPU
 wgpu = { version = "29.0.3", features = ["wgsl"] }
 glam = { version = "0.32.1", features = ["bytemuck", "scalar-math"] }
-bytemuck = { version = "1.25", features = ["derive"] }
+bytemuck = { version = "1.25", features = ["derive", "min_const_generics"] }
 guillotiere = "0.6"
 
 # Windowing and Input

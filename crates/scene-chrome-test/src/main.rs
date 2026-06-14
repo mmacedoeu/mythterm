@@ -29,6 +29,8 @@ use winit::{
 
 use wgpu::util::DeviceExt;
 
+use wgsl_sdf::{png::write_png_rgba, SdfParams, SHADER_SRC};
+
 // -----------------------------------------------------------------
 // Geometry helpers
 // -----------------------------------------------------------------
@@ -51,43 +53,10 @@ impl Rect {
     }
 }
 
-// -----------------------------------------------------------------
-// SDF params — must match the WGSL uniform layout exactly.
-//   16-byte aligned vec4 array, 11 slots = 44 f32s = 176 bytes.
-// -----------------------------------------------------------------
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct SdfParams {
-    data: [f32; 44],
-}
-
-impl SdfParams {
-    fn rect(&mut self, r: [f32; 4]) { self.data[0..4].copy_from_slice(&r); }
-    fn fill(&mut self, c: [f32; 4]) { self.data[4..8].copy_from_slice(&c); }
-    fn top_peak(&mut self, c: [f32; 4]) { self.data[8..12].copy_from_slice(&c); }
-    fn top_dim(&mut self, c: [f32; 4]) { self.data[12..16].copy_from_slice(&c); }
-    fn bot_peak(&mut self, c: [f32; 4]) { self.data[16..20].copy_from_slice(&c); }
-    fn bot_dim(&mut self, c: [f32; 4]) { self.data[20..24].copy_from_slice(&c); }
-    fn grad_left(&mut self, c: [f32; 4]) { self.data[24..28].copy_from_slice(&c); }
-    fn grad_right(&mut self, c: [f32; 4]) { self.data[28..32].copy_from_slice(&c); }
-    fn scalars(&mut self, corner_radius: f32, top_off: f32, top_in: f32, top_out: f32,
-              bot_off: f32, bot_in: f32, bot_out: f32, grad_peak: f32) {
-        self.data[32] = corner_radius;
-        self.data[33] = top_off;
-        self.data[34] = top_in;
-        self.data[35] = top_out;
-        self.data[36] = bot_off;
-        self.data[37] = bot_in;
-        self.data[38] = bot_out;
-        self.data[39] = grad_peak;
-    }
-}
-
 // Tab colors pulled from the goal mockup used in `sdf-test` /
 // `tab-test`. Kept identical so the visual target is the same.
 fn active_tab_params(rect: Rect, glow_boost: f32) -> SdfParams {
-    let mut p = SdfParams { data: [0.0; 44] };
+    let mut p = SdfParams::zeroed();
     p.rect([rect.min[0], rect.min[1], rect.width(), rect.height()]);
     p.fill([22.0/255.0, 44.0/255.0, 62.0/255.0, 1.0]);
     p.top_peak([(45.0/255.0) * (1.0 + glow_boost),
@@ -106,7 +75,7 @@ fn active_tab_params(rect: Rect, glow_boost: f32) -> SdfParams {
 
 fn inactive_tab_params(rect: Rect) -> SdfParams {
     // Subdued version: dimmer fill, no border, no gradient.
-    let mut p = SdfParams { data: [0.0; 44] };
+    let mut p = SdfParams::zeroed();
     p.rect([rect.min[0], rect.min[1], rect.width(), rect.height()]);
     p.fill([14.0/255.0, 22.0/255.0, 32.0/255.0, 1.0]);
     // All accent colors at fill-equivalent brightness so the
@@ -121,146 +90,6 @@ fn inactive_tab_params(rect: Rect) -> SdfParams {
     p.scalars(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5);
     p
 }
-
-// -----------------------------------------------------------------
-// WGSL shader. Identical to sdf-test/src/main.rs WGSL_SHADER.
-// (Duplicated to keep this crate self-contained, per Phase 2
-// plan § 11.1. Will be promoted to a shared `wgsl-sdf` crate
-// once Phase 3 begins.)
-// -----------------------------------------------------------------
-
-const WGSL_SHADER: &str = r#"
-struct SdfParams {
-    data: array<vec4<f32>, 11>,
-}
-@group(0) @binding(0) var<uniform> params: SdfParams;
-
-fn p_rect()           -> vec4<f32> { return params.data[0]; }
-fn p_fill()           -> vec4<f32> { return params.data[1]; }
-fn p_top_peak()       -> vec4<f32> { return params.data[2]; }
-fn p_top_dim()        -> vec4<f32> { return params.data[3]; }
-fn p_bot_peak()       -> vec4<f32> { return params.data[4]; }
-fn p_bot_dim()        -> vec4<f32> { return params.data[5]; }
-fn p_grad_left()      -> vec4<f32> { return params.data[6]; }
-fn p_grad_right()     -> vec4<f32> { return params.data[7]; }
-fn p_corner_radius()  -> f32       { return params.data[8].x; }
-fn p_top_off()        -> f32       { return params.data[8].y; }
-fn p_top_in()         -> f32       { return params.data[8].z; }
-fn p_top_out()        -> f32       { return params.data[8].w; }
-fn p_bot_off()        -> f32       { return params.data[9].x; }
-fn p_bot_in()         -> f32       { return params.data[9].y; }
-fn p_bot_out()        -> f32       { return params.data[9].z; }
-fn p_grad_peak()      -> f32       { return params.data[9].w; }
-
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) local_pos: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
-    var out: VertexOutput;
-    let r = p_rect();
-    out.clip_pos = vec4<f32>(
-        (pos.x / 800.0) * 2.0 - 1.0,
-        1.0 - (pos.y / 600.0) * 2.0,
-        0.0, 1.0
-    );
-    let center = vec2<f32>(r.x + r.z * 0.5, r.y + r.w * 0.5);
-    out.local_pos = pos - center;
-    out.uv = vec2<f32>((pos.x - r.x) / r.z, (pos.y - r.y) / r.w);
-    return out;
-}
-
-fn sd_rounded_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
-    let q = abs(p) - b + vec2<f32>(r);
-    return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - r;
-}
-
-fn peak_at(x_t: f32, peak_color: vec4<f32>) -> vec4<f32> {
-    let gp = p_grad_peak();
-    let denom = max(gp, 1.0 - gp);
-    let d_left = abs(x_t - gp) / denom;
-    let bell = clamp(1.0 - d_left, 0.0, 1.0);
-    let bell_smooth = bell * bell * (3.0 - 2.0 * bell);
-    return mix(
-        mix(p_grad_left(), peak_color, bell_smooth),
-        p_grad_right(),
-        smoothstep(gp, 1.0, x_t) * 0.3
-    );
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let r = p_rect();
-    let half_size = vec2<f32>(r.z * 0.5, r.w * 0.5);
-    let d = sd_rounded_box(in.local_pos, half_size, p_corner_radius());
-
-    let margin = max(max(p_top_out(), p_bot_out()), 1.0) + 1.0;
-    if d > margin {
-        discard;
-    }
-
-    let bg_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    var color = p_fill();
-    if d > 0.0 {
-        color = bg_color;
-    }
-
-    let t = clamp(in.uv.x, 0.0, 1.0);
-
-    // === TOP BORDER ===
-    let top_line_y = -half_size.y + p_top_off();
-    let top_d = in.local_pos.y - top_line_y;
-    let top_in = p_top_in();
-    let top_out = p_top_out();
-    if top_in > 0.0 {
-        if top_d >= -top_in && top_d <= top_out {
-            let top_peak_c = peak_at(t, p_top_peak());
-            if top_d <= 0.0 {
-                let dim_d = top_in * 0.33;
-                if -top_d <= dim_d {
-                    let f = smoothstep(0.0, dim_d, -top_d);
-                    color = mix(top_peak_c, p_top_dim(), f);
-                } else {
-                    let f = smoothstep(dim_d, top_in, -top_d);
-                    color = mix(p_top_dim(), p_fill(), f);
-                }
-            } else {
-                let f = smoothstep(0.0, top_out, top_d);
-                color = mix(top_peak_c, bg_color, f);
-            }
-        }
-    }
-
-    // === BOTTOM BORDER ===
-    let bot_line_y = half_size.y + p_bot_off();
-    let bot_d = in.local_pos.y - bot_line_y;
-    let bot_in = p_bot_in();
-    let bot_out = p_bot_out();
-    if bot_in > 0.0 {
-        if bot_d >= -bot_in && bot_d <= bot_out {
-            let bot_peak_c = peak_at(t, p_bot_peak());
-            if bot_d <= 0.0 {
-                let dim_d = bot_in * 0.33;
-                if -bot_d <= dim_d {
-                    let f = smoothstep(0.0, dim_d, -bot_d);
-                    color = mix(bot_peak_c, p_bot_dim(), f);
-                } else {
-                    let f = smoothstep(dim_d, bot_in, -bot_d);
-                    color = mix(p_bot_dim(), p_fill(), f);
-                }
-            } else {
-                let f = smoothstep(0.0, bot_out, bot_d);
-                color = mix(bot_peak_c, bg_color, f);
-            }
-        }
-    }
-
-    return color;
-}
-"#;
 
 // -----------------------------------------------------------------
 // Scene graph
@@ -364,7 +193,7 @@ impl Scene {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("scene-sdf-shader"),
-            source: wgpu::ShaderSource::Wgsl(WGSL_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(SHADER_SRC.into()),
         });
 
         let bind_group_layout =
@@ -1034,122 +863,6 @@ impl App {
         drop(mapped);
         read_buf.unmap();
     }
-}
-
-// -----------------------------------------------------------------
-// Tiny PNG writer (RGBA8) — zero deps.
-// Spec: https://www.w3.org/TR/PNG/
-// -----------------------------------------------------------------
-
-fn write_png_rgba(
-    path: &str,
-    w: u32,
-    h: u32,
-    padded_row: u32,
-    rgba: &[u8],
-) -> std::io::Result<()> {
-    use std::io::Write;
-
-    // 1. Filter type 0 (None) for every row.
-    let mut raw = Vec::with_capacity(((padded_row + 1) * h) as usize);
-    for y in 0..h {
-        raw.push(0u8);
-        let start = (y * padded_row) as usize;
-        let end = start + (w as usize) * 4;
-        raw.extend_from_slice(&rgba[start..end]);
-    }
-
-    // 2. zlib-compress (deflate stored blocks — no compression
-    //    but valid; we don't need small PNGs for a snapshot).
-    let compressed = zlib_store(&raw);
-
-    // 3. Build PNG chunks.
-    let mut out = Vec::new();
-    out.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]); // signature
-    write_chunk(&mut out, b"IHDR", &{
-        let mut v = Vec::with_capacity(13);
-        v.extend_from_slice(&w.to_be_bytes());
-        v.extend_from_slice(&h.to_be_bytes());
-        v.push(8);   // bit depth
-        v.push(6);   // color type RGBA
-        v.push(0);   // compression
-        v.push(0);   // filter
-        v.push(0);   // interlace
-        v
-    });
-    write_chunk(&mut out, b"IDAT", &compressed);
-    write_chunk(&mut out, b"IEND", &[]);
-
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(&out)?;
-    Ok(())
-}
-
-fn write_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-    let len = data.len() as u32;
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(kind);
-    out.extend_from_slice(data);
-    let mut crc_input = Vec::with_capacity(4 + data.len());
-    crc_input.extend_from_slice(kind);
-    crc_input.extend_from_slice(data);
-    out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
-}
-
-fn crc32(buf: &[u8]) -> u32 {
-    let mut table = [0u32; 256];
-    for n in 0..256u32 {
-        let mut c = n;
-        for _ in 0..8 {
-            c = if c & 1 != 0 { 0xedb8_8320 ^ (c >> 1) } else { c >> 1 };
-        }
-        table[n as usize] = c;
-    }
-    let mut crc = 0xffff_ffffu32;
-    for &b in buf {
-        let idx = ((crc ^ b as u32) & 0xff) as usize;
-        crc = table[idx] ^ (crc >> 8);
-    }
-    crc ^ 0xffff_ffff
-}
-
-/// Stored (uncompressed) deflate blocks. Valid zlib stream.
-fn zlib_store(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.push(0x78); // CMF: CM=8, CINFO=7
-    out.push(0x01); // FLG: FCHECK=1, no dict, level 0
-
-    const MAX_BLOCK: usize = 0xFFFF;
-    if data.is_empty() {
-        // Empty stored block (BTYPE=00) for an empty stream.
-        out.push(0x01);
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&adler32(data).to_be_bytes());
-        return out;
-    }
-    let mut blocks = data.chunks(MAX_BLOCK).peekable();
-    while let Some(chunk) = blocks.next() {
-        let is_last = blocks.peek().is_none();
-        out.push(if is_last { 0x01 } else { 0x00 });
-        let len = chunk.len() as u16;
-        let nlen = !len;
-        out.extend_from_slice(&len.to_le_bytes());
-        out.extend_from_slice(&nlen.to_le_bytes());
-        out.extend_from_slice(chunk);
-    }
-    out.extend_from_slice(&adler32(data).to_be_bytes());
-    out
-}
-
-fn adler32(data: &[u8]) -> u32 {
-    let mut a: u32 = 1;
-    let mut b: u32 = 0;
-    const MOD: u32 = 65_521;
-    for &x in data {
-        a = (a + x as u32) % MOD;
-        b = (b + a) % MOD;
-    }
-    (b << 16) | a
 }
 
 // -----------------------------------------------------------------

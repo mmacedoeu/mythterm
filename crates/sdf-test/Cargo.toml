@@ -17,3 +17,4 @@ log = { workspace = true }
 anyhow = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
+wgsl-sdf = { workspace = true }

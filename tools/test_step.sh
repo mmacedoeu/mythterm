@@ -37,7 +37,7 @@ cargo build -p "${crate}" --release
 # mechanism will be implemented per crate — see the canonical
 # plan § 11.
 echo "==> running ${crate} --step=${step} (writes ${snapshot})"
-cargo run -p "${crate}" --release -- --step="${step}" &
+cargo run -p "${crate}" --release -- --step="${step}" --snapshot-at=2 &
 pid=$!
 trap "kill ${pid} 2>/dev/null || true" EXIT
 # Wait for the snapshot to appear, up to 10 s.
