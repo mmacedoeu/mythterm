@@ -117,15 +117,15 @@ fn look_at(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> [[f32; 4]; 4] {
     let s = normalize3(cross3(f, up));
     // u = cross(s, f)
     let u = cross3(s, f);
-    // view = [ s.x  s.y  s.z  -dot(s, eye) ]
-    //        [ u.x  u.y  u.z  -dot(u, eye) ]
-    //        [-f.x -f.y -f.z  dot(f, eye) ]
-    //        [ 0    0    0    1           ]
+    // View matrix, COLUMN-MAJOR. The view space has the
+    // camera at the origin looking down -Z, with +X right
+    // and +Y up. The columns of the view matrix are the
+    // basis vectors (s, u, -f) and the translation.
     let m = [
-        [ s[0],  s[1],  s[2], -dot3(s, eye)],
-        [ u[0],  u[1],  u[2], -dot3(u, eye)],
-        [-f[0], -f[1], -f[2],  dot3(f, eye)],
-        [ 0.0,   0.0,   0.0,  1.0        ],
+        [ s[0],  s[1],  s[2], 0.0],   // col 0: s basis
+        [ u[0],  u[1],  u[2], 0.0],   // col 1: u basis
+        [-f[0], -f[1], -f[2], 0.0],   // col 2: -f basis
+        [-dot3(s, eye), -dot3(u, eye), dot3(f, eye), 1.0],  // col 3: translation
     ];
     m
 }
@@ -143,15 +143,35 @@ fn ortho(half_w: f32, half_h: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
 
 fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> [[f32; 4]; 4] {
     let f = 1.0 / (fov_y * 0.5).tan();
+    // Right-handed, looking down -Z. In our lookAt, the
+    // world point (0,0,0) seen from eye=(0,0,2) maps to
+    // view-space z = -2 (in front of the camera). For a
+    // point with z_view < 0, we want w_clip = -z_view > 0
+    // (so that perspective division is well-defined).
+    //
+    // In column-major storage m[col][row]:
+    //   m[2][3] = -1  (so w_clip = -z_view)
+    //   m[2][2] = -far / (far - near)  (depth scaling)
+    //   m[3][2] = -far*near / (far - near)  (depth offset)
+    //   m[3][3] = 0
+    // We don't use a depth attachment, so the z mapping
+    // (NDC z in [-1, 1] vs [0, 1]) doesn't matter for
+    // correctness here — only the sign of w does.
     [
-        [f / aspect, 0.0, 0.0,                          0.0                          ],
-        [0.0,        f,   0.0,                          0.0                          ],
-        [0.0,        0.0, far / (far - near),          -far * near / (far - near)   ],
-        [0.0,        0.0, 1.0,                          0.0                          ],
+        [f / aspect, 0.0, 0.0,                            0.0                          ],
+        [0.0,        f,   0.0,                            0.0                          ],
+        [0.0,        0.0, -far / (far - near),           -1.0                          ],
+        [0.0,        0.0, -far * near / (far - near),    0.0                          ],
     ]
 }
 
 fn mat4_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    // Column-major matrix multiplication.
+    //
+    // In column-major storage, c[col][row] = c_rm[row][col].
+    // Standard row-major mult: c_rm[i][j] = sum_k a_rm[i][k] * b_rm[k][j].
+    // So: c_cm[col][row] = c_rm[row][col] = sum_k a_rm[row][k] * b_rm[k][col]
+    //                              = sum_k a_cm[k][row] * b_cm[col][k].
     let mut out = [[0.0; 4]; 4];
     for col in 0..4 {
         for row in 0..4 {
@@ -358,9 +378,11 @@ impl Scene {
             4 => {
                 s.mesh_curvature = 0.8;
                 // 5 chrome tabs floating in front of the mesh.
-                let tab_w = 0.18;
-                let tab_h = 0.06;
-                let z = 0.25;
+                // Sized so they read clearly at the default
+                // perspective camera distance (z=2).
+                let tab_w = 0.30;
+                let tab_h = 0.18;
+                let z = 0.5;
                 let colors = [
                     [0.4, 0.5, 0.9, 1.0],
                     [0.9, 0.4, 0.5, 1.0],
@@ -369,9 +391,9 @@ impl Scene {
                     [0.7, 0.4, 0.9, 1.0],
                 ];
                 for (i, c) in colors.iter().enumerate() {
-                    let x = -0.4 + i as f32 * 0.2;
+                    let x = -0.40 + i as f32 * 0.20;
                     s.chrome.push(ChromeNode {
-                        position: [x, 0.6, z],
+                        position: [x, 0.0, z],
                         size: [tab_w, tab_h],
                         color: *c,
                     });
@@ -380,9 +402,9 @@ impl Scene {
             5 => {
                 s.mesh_curvature = 0.8;
                 // Chrome (same as step 4).
-                let tab_w = 0.18;
-                let tab_h = 0.06;
-                let z = 0.25;
+                let tab_w = 0.30;
+                let tab_h = 0.18;
+                let z = 0.5;
                 let colors = [
                     [0.4, 0.5, 0.9, 1.0],
                     [0.9, 0.4, 0.5, 1.0],
@@ -391,9 +413,9 @@ impl Scene {
                     [0.7, 0.4, 0.9, 1.0],
                 ];
                 for (i, c) in colors.iter().enumerate() {
-                    let x = -0.4 + i as f32 * 0.2;
+                    let x = -0.40 + i as f32 * 0.20;
                     s.chrome.push(ChromeNode {
-                        position: [x, 0.6, z],
+                        position: [x, 0.0, z],
                         size: [tab_w, tab_h],
                         color: *c,
                     });
@@ -588,10 +610,6 @@ struct App {
     bind_groups_chrome: Vec<wgpu::BindGroup>,
     uniform_buffers_splat: Vec<wgpu::Buffer>,
     bind_groups_splat: Vec<wgpu::BindGroup>,
-    // Snapshot.
-    snapshot_pipeline_mesh: Option<wgpu::RenderPipeline>,
-    snapshot_pipeline_chrome: Option<wgpu::RenderPipeline>,
-    snapshot_pipeline_splat: Option<wgpu::RenderPipeline>,
     // State.
     step: u32,
     size: (u32, u32),
@@ -637,9 +655,6 @@ impl App {
             bind_groups_chrome: Vec::new(),
             uniform_buffers_splat: Vec::new(),
             bind_groups_splat: Vec::new(),
-            snapshot_pipeline_mesh: None,
-            snapshot_pipeline_chrome: None,
-            snapshot_pipeline_splat: None,
             step,
             size: (800, 600),
             auto_snapshot_at: parse_auto_snapshot(),
@@ -694,7 +709,7 @@ impl App {
         //   draw 0: the mesh
         //   draws 1..N: chrome (step 4+)
         //   draws N..M: splats (step 5)
-        let mut mesh_count = 1usize;
+        let mesh_count = 1usize;
         let mut chrome_count = 0usize;
         let mut splat_count = 0usize;
         if self.step >= 4 { chrome_count = self.scene.chrome.len(); }
@@ -705,7 +720,7 @@ impl App {
         // Write per-draw uniforms.
         // --- Mesh (slot 0) ---
         {
-            let mut u = MeshUniforms {
+            let u = MeshUniforms {
                 mvp: mat4_mul(vp, self.scene.mesh_model),
                 model: self.scene.mesh_model,
                 curvature: self.scene.mesh_curvature,
@@ -725,6 +740,9 @@ impl App {
                 color: c.color,
             };
             queue.write_buffer(&self.uniform_buffers_chrome[slot], 0, bytemuck::bytes_of(&u));
+            if i == 0 {
+                log::info!("chrome[0] color: {:?}", u.color);
+            }
         }
         // --- Splats (slots 1+chrome_count..) ---
         for (i, s) in self.scene.splats.iter().enumerate() {
@@ -855,22 +873,33 @@ impl App {
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
 
-        let snap_attrs: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+        let snap_mesh_attrs: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+        let snap_quad_attrs: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x2];
         // One pipeline per kind. We pass the same shader module
         // and the same pipeline layout; the entry point
-        // determines which shader is used.
-        let make_pipeline = |label: &str, entry: &str| -> wgpu::RenderPipeline {
+        // determines which shader is used. The vertex layout
+        // is per-pipeline because mesh uses MeshVertex (stride 20)
+        // while chrome and splats use QuadVertex (stride 8).
+        let make_pipeline = |label: &str, entry: &str, vertex_kind: VertexKind| -> wgpu::RenderPipeline {
+            let buffers: Vec<wgpu::VertexBufferLayout> = match vertex_kind {
+                VertexKind::Mesh => vec![wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<MeshVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &snap_mesh_attrs,
+                }],
+                VertexKind::Quad => vec![wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<QuadVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &snap_quad_attrs,
+                }],
+            };
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(entry),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<MeshVertex>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &snap_attrs,
-                    }],
+                    buffers: &buffers,
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -900,9 +929,9 @@ impl App {
                 cache: None,
             })
         };
-        let snap_mesh = make_pipeline("snap-mesh", "vs_mesh");
-        let snap_chrome = make_pipeline("snap-chrome", "vs_chrome");
-        let snap_splat = make_pipeline("snap-splat", "vs_splat");
+        let snap_mesh = make_pipeline("snap-mesh", "vs_mesh", VertexKind::Mesh);
+        let snap_chrome = make_pipeline("snap-chrome", "vs_chrome", VertexKind::Quad);
+        let snap_splat = make_pipeline("snap-splat", "vs_splat", VertexKind::Quad);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("snapshot-encoder"),
@@ -1090,7 +1119,7 @@ impl ApplicationHandler for App {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             width: 800, height: 600,
             present_mode: wgpu::PresentMode::Fifo,
